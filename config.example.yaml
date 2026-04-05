@@ -1,0 +1,49 @@
+# mssql-mcp-server configuration
+# Copy this file to mssql-mcp.yaml and adjust settings
+
+connection:
+  host: localhost
+  port: 1433
+  database: MyDatabase
+  authentication:
+    type: sql          # sql | windows | azure-ad
+    user: sa
+    password: YourPassword123
+    # domain: MYDOMAIN          # for windows auth
+    # clientId: xxx             # for azure-ad
+    # clientSecret: xxx         # for azure-ad
+    # tenantId: xxx             # for azure-ad
+  encrypt: false
+  trustServerCertificate: true
+  connectionTimeout: 15000
+  requestTimeout: 30000
+  pool:
+    min: 0
+    max: 10
+    idleTimeout: 30000
+
+security:
+  mode: readonly       # readonly | readwrite | admin
+  allowedDatabases: [] # empty = all allowed
+  blockedDatabases:
+    - master
+    - msdb
+    - tempdb
+    - model
+  allowedSchemas: []   # empty = all allowed
+  blockedSchemas: []
+  maxRowCount: 1000
+  queryTimeout: 30000
+  allowDDL: false
+  allowMutations: false
+  blockedKeywords:
+    - xp_cmdshell
+    - SHUTDOWN
+    - DROP DATABASE
+    - RECONFIGURE
+    - sp_configure
+  maskColumns:
+    - pattern: "*.password"
+      mask: "***"
+    - pattern: "*.ssn"
+      mask: "XXX-XX-XXXX"
