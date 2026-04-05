@@ -1,4 +1,4 @@
-# mssql-mcp-server
+# mcp-sqlserver
 
 A powerful [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server for **Microsoft SQL Server**. Connects AI assistants (Claude, Gemini, Kiro, OpenAI, Copilot, Cursor) directly to your SQL Server databases with enterprise-grade security controls.
 
@@ -54,12 +54,12 @@ A powerful [Model Context Protocol (MCP)](https://modelcontextprotocol.io) serve
 ### Install
 
 ```bash
-npm install -g mssql-mcp-server
+npm install -g @tugberkgunver/mcp-sqlserver
 ```
 
 ### Configure
 
-Create `mssql-mcp.yaml` in your working directory:
+Create `@tugberkgunver/mcp-sqlserver.yaml` in your working directory:
 
 ```yaml
 connection:
@@ -91,7 +91,7 @@ Add to your MCP settings:
   "mcpServers": {
     "mssql": {
       "command": "npx",
-      "args": ["-y", "mssql-mcp-server"],
+      "args": ["-y", "@tugberkgunver/mcp-sqlserver"],
       "env": {
         "MSSQL_HOST": "localhost",
         "MSSQL_DATABASE": "MyDatabase",
@@ -110,7 +110,7 @@ Or with a config file:
   "mcpServers": {
     "mssql": {
       "command": "npx",
-      "args": ["-y", "mssql-mcp-server", "--config", "/path/to/mssql-mcp.yaml"]
+      "args": ["-y", "@tugberkgunver/mcp-sqlserver", "--config", "/path/to/@tugberkgunver/mcp-sqlserver.yaml"]
     }
   }
 }
@@ -125,7 +125,7 @@ Add to `.vscode/mcp.json`:
   "servers": {
     "mssql": {
       "command": "npx",
-      "args": ["-y", "mssql-mcp-server"],
+      "args": ["-y", "@tugberkgunver/mcp-sqlserver"],
       "env": {
         "MSSQL_HOST": "localhost",
         "MSSQL_DATABASE": "MyDatabase",
@@ -146,7 +146,7 @@ Add to `~/.cursor/mcp.json`:
   "mcpServers": {
     "mssql": {
       "command": "npx",
-      "args": ["-y", "mssql-mcp-server"],
+      "args": ["-y", "@tugberkgunver/mcp-sqlserver"],
       "env": {
         "MSSQL_HOST": "localhost",
         "MSSQL_DATABASE": "MyDatabase",
@@ -167,7 +167,7 @@ Add to your Kiro MCP configuration (`.kiro/settings/mcp.json`):
   "mcpServers": {
     "mssql": {
       "command": "npx",
-      "args": ["-y", "mssql-mcp-server"],
+      "args": ["-y", "@tugberkgunver/mcp-sqlserver"],
       "env": {
         "MSSQL_HOST": "localhost",
         "MSSQL_DATABASE": "MyDatabase",
@@ -188,7 +188,7 @@ Add to `~/.gemini/settings.json`:
   "mcpServers": {
     "mssql": {
       "command": "npx",
-      "args": ["-y", "mssql-mcp-server"],
+      "args": ["-y", "@tugberkgunver/mcp-sqlserver"],
       "env": {
         "MSSQL_HOST": "localhost",
         "MSSQL_DATABASE": "MyDatabase",
@@ -209,7 +209,7 @@ Add to ChatGPT Desktop MCP settings:
   "mcpServers": {
     "mssql": {
       "command": "npx",
-      "args": ["-y", "mssql-mcp-server"],
+      "args": ["-y", "@tugberkgunver/mcp-sqlserver"],
       "env": {
         "MSSQL_HOST": "localhost",
         "MSSQL_DATABASE": "MyDatabase",
@@ -230,7 +230,7 @@ Add to `~/.windsurf/mcp.json`:
   "mcpServers": {
     "mssql": {
       "command": "npx",
-      "args": ["-y", "mssql-mcp-server"],
+      "args": ["-y", "@tugberkgunver/mcp-sqlserver"],
       "env": {
         "MSSQL_HOST": "localhost",
         "MSSQL_DATABASE": "MyDatabase",
@@ -287,11 +287,11 @@ Pattern format: `[schema.]table.column` (use `*` as wildcard)
 ## Development
 
 ```bash
-git clone https://github.com/gunvertugberk/mssql-mcp-server.git
-cd mssql-mcp-server
+git clone https://github.com/gunvertugberk/@tugberkgunver/mcp-sqlserver-server.git
+cd @tugberkgunver/mcp-sqlserver
 npm install
 npm run build
-npm start -- --config ./mssql-mcp.yaml
+npm start -- --config ./@tugberkgunver/mcp-sqlserver.yaml
 ```
 
 ## License
