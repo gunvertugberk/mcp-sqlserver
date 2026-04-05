@@ -139,13 +139,105 @@ Add to `.vscode/mcp.json`:
 
 ### Use with Cursor
 
-Add to Cursor Settings > MCP Servers:
+Add to `~/.cursor/mcp.json`:
 
 ```json
 {
-  "mssql": {
-    "command": "npx",
-    "args": ["-y", "mssql-mcp-server", "--config", "/path/to/mssql-mcp.yaml"]
+  "mcpServers": {
+    "mssql": {
+      "command": "npx",
+      "args": ["-y", "mssql-mcp-server"],
+      "env": {
+        "MSSQL_HOST": "localhost",
+        "MSSQL_DATABASE": "MyDatabase",
+        "MSSQL_USER": "sa",
+        "MSSQL_PASSWORD": "YourPassword123"
+      }
+    }
+  }
+}
+```
+
+### Use with Kiro
+
+Add to your Kiro MCP configuration (`.kiro/settings/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "mssql": {
+      "command": "npx",
+      "args": ["-y", "mssql-mcp-server"],
+      "env": {
+        "MSSQL_HOST": "localhost",
+        "MSSQL_DATABASE": "MyDatabase",
+        "MSSQL_USER": "sa",
+        "MSSQL_PASSWORD": "YourPassword123"
+      }
+    }
+  }
+}
+```
+
+### Use with Gemini CLI
+
+Add to `~/.gemini/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "mssql": {
+      "command": "npx",
+      "args": ["-y", "mssql-mcp-server"],
+      "env": {
+        "MSSQL_HOST": "localhost",
+        "MSSQL_DATABASE": "MyDatabase",
+        "MSSQL_USER": "sa",
+        "MSSQL_PASSWORD": "YourPassword123"
+      }
+    }
+  }
+}
+```
+
+### Use with OpenAI (ChatGPT Desktop)
+
+Add to ChatGPT Desktop MCP settings:
+
+```json
+{
+  "mcpServers": {
+    "mssql": {
+      "command": "npx",
+      "args": ["-y", "mssql-mcp-server"],
+      "env": {
+        "MSSQL_HOST": "localhost",
+        "MSSQL_DATABASE": "MyDatabase",
+        "MSSQL_USER": "sa",
+        "MSSQL_PASSWORD": "YourPassword123"
+      }
+    }
+  }
+}
+```
+
+### Use with Windsurf
+
+Add to `~/.windsurf/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "mssql": {
+      "command": "npx",
+      "args": ["-y", "mssql-mcp-server"],
+      "env": {
+        "MSSQL_HOST": "localhost",
+        "MSSQL_DATABASE": "MyDatabase",
+        "MSSQL_USER": "sa",
+        "MSSQL_PASSWORD": "YourPassword123"
+      }
+    }
   }
 }
 ```
@@ -195,7 +287,7 @@ Pattern format: `[schema.]table.column` (use `*` as wildcard)
 ## Development
 
 ```bash
-git clone https://github.com/youruser/mssql-mcp-server.git
+git clone https://github.com/gunvertugberk/mssql-mcp-server.git
 cd mssql-mcp-server
 npm install
 npm run build
