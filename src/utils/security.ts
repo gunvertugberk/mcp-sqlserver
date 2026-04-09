@@ -1,5 +1,13 @@
 import type { SecurityConfig, MaskRule } from "../config.js";
 
+/**
+ * Escapes a SQL Server identifier (database, schema, table name) using bracket notation.
+ * Prevents SQL injection in object names that cannot be parameterized.
+ */
+export function escapeIdentifier(name: string): string {
+  return `[${name.replace(/]/g, "]]")}]`;
+}
+
 export class SecurityError extends Error {
   constructor(message: string) {
     super(message);

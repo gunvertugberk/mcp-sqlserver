@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AppConfig } from "../config.js";
 import { executeQuery } from "../database.js";
-import { isDatabaseAllowed, isSchemaAllowed } from "../utils/security.js";
+import { isDatabaseAllowed, isSchemaAllowed, escapeIdentifier } from "../utils/security.js";
 import { formatResultSet } from "../utils/formatter.js";
 
 export function registerSchemaTools(server: McpServer, config: AppConfig): void {
@@ -50,11 +50,12 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
+      const eDb = escapeIdentifier(db);
       const result = await executeQuery(
         config.connection,
         `SELECT s.name AS schema_name, s.schema_id, p.name AS owner
-         FROM [${db}].sys.schemas s
-         JOIN [${db}].sys.database_principals p ON s.principal_id = p.principal_id
+         FROM ${eDb}.sys.schemas s
+         JOIN ${eDb}.sys.database_principals p ON s.principal_id = p.principal_id
          ORDER BY s.name`
       );
 
@@ -90,28 +91,31 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
+      const eDb = escapeIdentifier(db);
       let query = `
         SELECT
           s.name AS [schema],
           t.name AS [table],
           p.rows AS [row_count],
           CAST(ROUND(SUM(a.total_pages) * 8.0 / 1024, 2) AS DECIMAL(18,2)) AS [size_mb]
-        FROM [${db}].sys.tables t
-        JOIN [${db}].sys.schemas s ON t.schema_id = s.schema_id
-        JOIN [${db}].sys.indexes i ON t.object_id = i.object_id
-        JOIN [${db}].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
-        JOIN [${db}].sys.allocation_units a ON p.partition_id = a.container_id
+        FROM ${eDb}.sys.tables t
+        JOIN ${eDb}.sys.schemas s ON t.schema_id = s.schema_id
+        JOIN ${eDb}.sys.indexes i ON t.object_id = i.object_id
+        JOIN ${eDb}.sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
+        JOIN ${eDb}.sys.allocation_units a ON p.partition_id = a.container_id
         WHERE i.index_id <= 1`;
 
+      const params: Record<string, unknown> = {};
       if (schema) {
-        query += ` AND s.name = '${schema.replace(/'/g, "''")}'`;
+        query += ` AND s.name = @schema`;
+        params.schema = schema;
       }
 
       query += `
         GROUP BY s.name, t.name, p.rows
         ORDER BY s.name, t.name`;
 
-      const result = await executeQuery(config.connection, query);
+      const result = await executeQuery(config.connection, query, params);
 
       const filtered = result.recordset.filter((r: any) =>
         isSchemaAllowed(r.schema, config.security)
@@ -145,23 +149,26 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
+      const eDb = escapeIdentifier(db);
       let query = `
         SELECT
           s.name AS [schema],
           v.name AS [view],
           v.create_date,
           v.modify_date
-        FROM [${db}].sys.views v
-        JOIN [${db}].sys.schemas s ON v.schema_id = s.schema_id
+        FROM ${eDb}.sys.views v
+        JOIN ${eDb}.sys.schemas s ON v.schema_id = s.schema_id
         WHERE 1=1`;
 
+      const params: Record<string, unknown> = {};
       if (schema) {
-        query += ` AND s.name = '${schema.replace(/'/g, "''")}'`;
+        query += ` AND s.name = @schema`;
+        params.schema = schema;
       }
 
       query += ` ORDER BY s.name, v.name`;
 
-      const result = await executeQuery(config.connection, query);
+      const result = await executeQuery(config.connection, query, params);
 
       const filtered = result.recordset.filter((r: any) =>
         isSchemaAllowed(r.schema, config.security)
@@ -201,8 +208,10 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         return { content: [{ type: "text" as const, text: `Access denied to schema: ${sch}` }] };
       }
 
-      const query = `
-        SELECT
+      const eDb = escapeIdentifier(db);
+      const result = await executeQuery(
+        config.connection,
+        `SELECT
           c.name AS [column],
           tp.name AS [type],
           c.max_length,
@@ -213,17 +222,17 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
           c.is_computed,
           dc.definition AS [default],
           cc.definition AS [computed_definition]
-        FROM [${db}].sys.columns c
-        JOIN [${db}].sys.types tp ON c.user_type_id = tp.user_type_id
-        JOIN [${db}].sys.objects o ON c.object_id = o.object_id
-        JOIN [${db}].sys.schemas s ON o.schema_id = s.schema_id
-        LEFT JOIN [${db}].sys.default_constraints dc ON c.default_object_id = dc.object_id
-        LEFT JOIN [${db}].sys.computed_columns cc ON c.object_id = cc.object_id AND c.column_id = cc.column_id
-        WHERE o.name = '${table.replace(/'/g, "''")}'
-          AND s.name = '${sch.replace(/'/g, "''")}'
-        ORDER BY c.column_id`;
-
-      const result = await executeQuery(config.connection, query);
+        FROM ${eDb}.sys.columns c
+        JOIN ${eDb}.sys.types tp ON c.user_type_id = tp.user_type_id
+        JOIN ${eDb}.sys.objects o ON c.object_id = o.object_id
+        JOIN ${eDb}.sys.schemas s ON o.schema_id = s.schema_id
+        LEFT JOIN ${eDb}.sys.default_constraints dc ON c.default_object_id = dc.object_id
+        LEFT JOIN ${eDb}.sys.computed_columns cc ON c.object_id = cc.object_id AND c.column_id = cc.column_id
+        WHERE o.name = @table
+          AND s.name = @schema
+        ORDER BY c.column_id`,
+        { table, schema: sch }
+      );
 
       if (result.recordset.length === 0) {
         return {
@@ -262,8 +271,10 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
-      const query = `
-        SELECT
+      const eDb = escapeIdentifier(db);
+      const result = await executeQuery(
+        config.connection,
+        `SELECT
           fk.name AS [fk_name],
           ps.name AS [parent_schema],
           pt.name AS [parent_table],
@@ -273,19 +284,19 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
           rc.name AS [referenced_column],
           fk.delete_referential_action_desc AS [on_delete],
           fk.update_referential_action_desc AS [on_update]
-        FROM [${db}].sys.foreign_keys fk
-        JOIN [${db}].sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
-        JOIN [${db}].sys.tables pt ON fkc.parent_object_id = pt.object_id
-        JOIN [${db}].sys.schemas ps ON pt.schema_id = ps.schema_id
-        JOIN [${db}].sys.columns pc ON fkc.parent_object_id = pc.object_id AND fkc.parent_column_id = pc.column_id
-        JOIN [${db}].sys.tables rt ON fkc.referenced_object_id = rt.object_id
-        JOIN [${db}].sys.schemas rs ON rt.schema_id = rs.schema_id
-        JOIN [${db}].sys.columns rc ON fkc.referenced_object_id = rc.object_id AND fkc.referenced_column_id = rc.column_id
-        WHERE pt.name = '${table.replace(/'/g, "''")}'
-          AND ps.name = '${sch.replace(/'/g, "''")}'
-        ORDER BY fk.name, fkc.constraint_column_id`;
-
-      const result = await executeQuery(config.connection, query);
+        FROM ${eDb}.sys.foreign_keys fk
+        JOIN ${eDb}.sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
+        JOIN ${eDb}.sys.tables pt ON fkc.parent_object_id = pt.object_id
+        JOIN ${eDb}.sys.schemas ps ON pt.schema_id = ps.schema_id
+        JOIN ${eDb}.sys.columns pc ON fkc.parent_object_id = pc.object_id AND fkc.parent_column_id = pc.column_id
+        JOIN ${eDb}.sys.tables rt ON fkc.referenced_object_id = rt.object_id
+        JOIN ${eDb}.sys.schemas rs ON rt.schema_id = rs.schema_id
+        JOIN ${eDb}.sys.columns rc ON fkc.referenced_object_id = rc.object_id AND fkc.referenced_column_id = rc.column_id
+        WHERE pt.name = @table
+          AND ps.name = @schema
+        ORDER BY fk.name, fkc.constraint_column_id`,
+        { table, schema: sch }
+      );
 
       return {
         content: [
@@ -320,26 +331,28 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
-      const query = `
-        SELECT
+      const eDb = escapeIdentifier(db);
+      const result = await executeQuery(
+        config.connection,
+        `SELECT
           i.name AS [index_name],
           i.type_desc AS [type],
           i.is_unique,
           i.is_primary_key,
           STRING_AGG(c.name, ', ') WITHIN GROUP (ORDER BY ic.key_ordinal) AS [columns],
           STRING_AGG(CASE WHEN ic.is_included_column = 1 THEN c.name END, ', ') AS [included_columns]
-        FROM [${db}].sys.indexes i
-        JOIN [${db}].sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
-        JOIN [${db}].sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
-        JOIN [${db}].sys.tables t ON i.object_id = t.object_id
-        JOIN [${db}].sys.schemas s ON t.schema_id = s.schema_id
-        WHERE t.name = '${table.replace(/'/g, "''")}'
-          AND s.name = '${sch.replace(/'/g, "''")}'
+        FROM ${eDb}.sys.indexes i
+        JOIN ${eDb}.sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+        JOIN ${eDb}.sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+        JOIN ${eDb}.sys.tables t ON i.object_id = t.object_id
+        JOIN ${eDb}.sys.schemas s ON t.schema_id = s.schema_id
+        WHERE t.name = @table
+          AND s.name = @schema
           AND i.name IS NOT NULL
         GROUP BY i.name, i.type_desc, i.is_unique, i.is_primary_key
-        ORDER BY i.is_primary_key DESC, i.name`;
-
-      const result = await executeQuery(config.connection, query);
+        ORDER BY i.is_primary_key DESC, i.name`,
+        { table, schema: sch }
+      );
 
       return {
         content: [
@@ -374,26 +387,28 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
-      const query = `
-        SELECT
+      const eDb = escapeIdentifier(db);
+      const result = await executeQuery(
+        config.connection,
+        `SELECT
           con.name AS [constraint_name],
           con.type_desc AS [type],
           col.name AS [column],
           chk.definition AS [check_definition],
           dc.definition AS [default_definition]
-        FROM [${db}].sys.objects con
-        JOIN [${db}].sys.objects t ON con.parent_object_id = t.object_id
-        JOIN [${db}].sys.schemas s ON t.schema_id = s.schema_id
-        LEFT JOIN [${db}].sys.check_constraints chk ON con.object_id = chk.object_id
-        LEFT JOIN [${db}].sys.default_constraints dc ON con.object_id = dc.object_id
-        LEFT JOIN [${db}].sys.columns col ON COALESCE(dc.parent_column_id, chk.parent_column_id) = col.column_id
+        FROM ${eDb}.sys.objects con
+        JOIN ${eDb}.sys.objects t ON con.parent_object_id = t.object_id
+        JOIN ${eDb}.sys.schemas s ON t.schema_id = s.schema_id
+        LEFT JOIN ${eDb}.sys.check_constraints chk ON con.object_id = chk.object_id
+        LEFT JOIN ${eDb}.sys.default_constraints dc ON con.object_id = dc.object_id
+        LEFT JOIN ${eDb}.sys.columns col ON COALESCE(dc.parent_column_id, chk.parent_column_id) = col.column_id
           AND t.object_id = col.object_id
-        WHERE t.name = '${table.replace(/'/g, "''")}'
-          AND s.name = '${sch.replace(/'/g, "''")}'
+        WHERE t.name = @table
+          AND s.name = @schema
           AND con.type IN ('PK', 'UQ', 'C', 'D', 'F')
-        ORDER BY con.type_desc, con.name`;
-
-      const result = await executeQuery(config.connection, query);
+        ORDER BY con.type_desc, con.name`,
+        { table, schema: sch }
+      );
 
       return {
         content: [
@@ -428,22 +443,24 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
-      const query = `
-        SELECT
+      const eDb = escapeIdentifier(db);
+      const result = await executeQuery(
+        config.connection,
+        `SELECT
           tr.name AS [trigger_name],
           tr.is_disabled,
           tr.is_instead_of_trigger,
           te.type_desc AS [event_type],
           OBJECT_DEFINITION(tr.object_id) AS [definition]
-        FROM [${db}].sys.triggers tr
-        JOIN [${db}].sys.trigger_events te ON tr.object_id = te.object_id
-        JOIN [${db}].sys.tables t ON tr.parent_id = t.object_id
-        JOIN [${db}].sys.schemas s ON t.schema_id = s.schema_id
-        WHERE t.name = '${table.replace(/'/g, "''")}'
-          AND s.name = '${sch.replace(/'/g, "''")}'
-        ORDER BY tr.name`;
-
-      const result = await executeQuery(config.connection, query);
+        FROM ${eDb}.sys.triggers tr
+        JOIN ${eDb}.sys.trigger_events te ON tr.object_id = te.object_id
+        JOIN ${eDb}.sys.tables t ON tr.parent_id = t.object_id
+        JOIN ${eDb}.sys.schemas s ON t.schema_id = s.schema_id
+        WHERE t.name = @table
+          AND s.name = @schema
+        ORDER BY tr.name`,
+        { table, schema: sch }
+      );
 
       return {
         content: [

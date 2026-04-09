@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AppConfig } from "../config.js";
 import { executeQuery } from "../database.js";
-import { validateQuery } from "../utils/security.js";
+import { validateQuery, escapeIdentifier } from "../utils/security.js";
 
 export function registerDDLTools(server: McpServer, config: AppConfig): void {
   // ─── execute_ddl ───
@@ -35,7 +35,7 @@ export function registerDDLTools(server: McpServer, config: AppConfig): void {
         validateQuery(sqlQuery, config.security);
 
         const query = database
-          ? `USE [${database.replace(/]/g, "]]")}];\n${sqlQuery}`
+          ? `USE ${escapeIdentifier(database)};\n${sqlQuery}`
           : sqlQuery;
 
         await executeQuery(config.connection, query);

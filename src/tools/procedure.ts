@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AppConfig } from "../config.js";
 import { executeQuery } from "../database.js";
-import { isDatabaseAllowed, isSchemaAllowed } from "../utils/security.js";
+import { isDatabaseAllowed, isSchemaAllowed, escapeIdentifier } from "../utils/security.js";
 import { formatResultSet } from "../utils/formatter.js";
 
 export function registerProcedureTools(server: McpServer, config: AppConfig): void {
@@ -23,23 +23,26 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
+      const eDb = escapeIdentifier(db);
       let query = `
         SELECT
           s.name AS [schema],
           p.name AS [procedure],
           p.create_date,
           p.modify_date
-        FROM [${db}].sys.procedures p
-        JOIN [${db}].sys.schemas s ON p.schema_id = s.schema_id
+        FROM ${eDb}.sys.procedures p
+        JOIN ${eDb}.sys.schemas s ON p.schema_id = s.schema_id
         WHERE 1=1`;
 
+      const params: Record<string, unknown> = {};
       if (schema) {
-        query += ` AND s.name = '${schema.replace(/'/g, "''")}'`;
+        query += ` AND s.name = @schema`;
+        params.schema = schema;
       }
 
       query += ` ORDER BY s.name, p.name`;
 
-      const result = await executeQuery(config.connection, query);
+      const result = await executeQuery(config.connection, query, params);
 
       const filtered = result.recordset.filter((r: any) =>
         isSchemaAllowed(r.schema, config.security)
@@ -78,6 +81,8 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
+      const eDb = escapeIdentifier(db);
+
       // Get parameters
       const paramQuery = `
         SELECT
@@ -89,20 +94,20 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
           par.is_output,
           par.has_default_value,
           par.default_value
-        FROM [${db}].sys.parameters par
-        JOIN [${db}].sys.procedures p ON par.object_id = p.object_id
-        JOIN [${db}].sys.schemas s ON p.schema_id = s.schema_id
-        JOIN [${db}].sys.types tp ON par.user_type_id = tp.user_type_id
-        WHERE p.name = '${procedure.replace(/'/g, "''")}'
-          AND s.name = '${sch.replace(/'/g, "''")}'
+        FROM ${eDb}.sys.parameters par
+        JOIN ${eDb}.sys.procedures p ON par.object_id = p.object_id
+        JOIN ${eDb}.sys.schemas s ON p.schema_id = s.schema_id
+        JOIN ${eDb}.sys.types tp ON par.user_type_id = tp.user_type_id
+        WHERE p.name = @procedure
+          AND s.name = @schema
         ORDER BY par.parameter_id`;
 
-      // Get source
-      const srcQuery = `
-        SELECT OBJECT_DEFINITION(OBJECT_ID('[${db}].[${sch.replace(/'/g, "''")}].[${procedure.replace(/'/g, "''")}]')) AS [definition]`;
+      // Get source — use escaped identifiers for OBJECT_ID
+      const qualifiedName = `${eDb}.${escapeIdentifier(sch)}.${escapeIdentifier(procedure)}`;
+      const srcQuery = `SELECT OBJECT_DEFINITION(OBJECT_ID('${qualifiedName.replace(/'/g, "''")}')) AS [definition]`;
 
       const [paramResult, srcResult] = await Promise.all([
-        executeQuery(config.connection, paramQuery),
+        executeQuery(config.connection, paramQuery, { procedure, schema: sch }),
         executeQuery(config.connection, srcQuery),
       ]);
 
@@ -168,9 +173,10 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
           .map(([key]) => `@${key} = @${key}`)
           .join(", ");
 
+        const eProcedure = escapeIdentifier(procedure);
         const execSql = database
-          ? `USE [${database.replace(/]/g, "]]")}];\nEXEC [${procedure.replace(/]/g, "]]")}] ${paramStr}`
-          : `EXEC [${procedure.replace(/]/g, "]]")}] ${paramStr}`;
+          ? `USE ${escapeIdentifier(database)};\nEXEC ${eProcedure} ${paramStr}`
+          : `EXEC ${eProcedure} ${paramStr}`;
 
         const result = await executeQuery(
           config.connection,

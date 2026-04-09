@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AppConfig } from "../config.js";
 import { executeQuery } from "../database.js";
-import { isDatabaseAllowed } from "../utils/security.js";
+import { isDatabaseAllowed, escapeIdentifier } from "../utils/security.js";
 import { formatResultSet } from "../utils/formatter.js";
 
 export function registerPerformanceTools(server: McpServer, config: AppConfig): void {
@@ -25,7 +25,7 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
         if (database) {
           await executeQuery(
             config.connection,
-            `USE [${db.replace(/]/g, "]]")}]`
+            `USE ${escapeIdentifier(db)}`
           );
         }
 
@@ -153,7 +153,7 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
       try {
         const result = await executeQuery(
           config.connection,
-          `USE [${db.replace(/]/g, "]]")}];
+          `USE ${escapeIdentifier(db)};
           SELECT
             s.name AS [schema],
             t.name AS [table],
@@ -169,10 +169,11 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
           JOIN sys.indexes i ON t.object_id = i.object_id
           JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
           JOIN sys.allocation_units a ON p.partition_id = a.container_id
-          WHERE t.name = '${table.replace(/'/g, "''")}'
-            AND s.name = '${sch.replace(/'/g, "''")}'
+          WHERE t.name = @table
+            AND s.name = @schema
             AND i.index_id <= 1
-          GROUP BY s.name, t.name, p.rows, t.object_id`
+          GROUP BY s.name, t.name, p.rows, t.object_id`,
+          { table, schema: sch }
         );
 
         return {
@@ -219,7 +220,7 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
       try {
         const result = await executeQuery(
           config.connection,
-          `USE [${db.replace(/]/g, "]]")}];
+          `USE ${escapeIdentifier(db)};
           SELECT
             i.name AS [index_name],
             i.type_desc AS [type],
@@ -240,10 +241,11 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
           JOIN sys.schemas s ON t.schema_id = s.schema_id
           LEFT JOIN sys.dm_db_index_usage_stats ius
             ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = DB_ID()
-          WHERE t.name = '${table.replace(/'/g, "''")}'
-            AND s.name = '${sch.replace(/'/g, "''")}'
+          WHERE t.name = @table
+            AND s.name = @schema
             AND i.name IS NOT NULL
-          ORDER BY ISNULL(ius.user_seeks, 0) + ISNULL(ius.user_scans, 0) DESC`
+          ORDER BY ISNULL(ius.user_seeks, 0) + ISNULL(ius.user_scans, 0) DESC`,
+          { table, schema: sch }
         );
 
         return {
@@ -310,8 +312,9 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
           FROM sys.dm_db_missing_index_details mid
           JOIN sys.dm_db_missing_index_groups mig ON mid.index_handle = mig.index_handle
           JOIN sys.dm_db_missing_index_group_stats migs ON mig.index_group_handle = migs.group_handle
-          WHERE mid.database_id = DB_ID('${db.replace(/'/g, "''")}')
-          ORDER BY improvement_measure DESC`
+          WHERE mid.database_id = DB_ID(@database)
+          ORDER BY improvement_measure DESC`,
+          { database: db }
         );
 
         return {
@@ -390,6 +393,7 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
       }
 
       try {
+        const eDb = escapeIdentifier(db);
         const result = await executeQuery(
           config.connection,
           `SELECT
@@ -400,16 +404,17 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
             d.collation_name,
             d.create_date,
             (SELECT CAST(SUM(size * 8.0 / 1024) AS DECIMAL(18,2))
-             FROM [${db.replace(/]/g, "]]")}].sys.database_files
+             FROM ${eDb}.sys.database_files
              WHERE type = 0) AS [data_size_mb],
             (SELECT CAST(SUM(size * 8.0 / 1024) AS DECIMAL(18,2))
-             FROM [${db.replace(/]/g, "]]")}].sys.database_files
+             FROM ${eDb}.sys.database_files
              WHERE type = 1) AS [log_size_mb],
-            (SELECT COUNT(*) FROM [${db.replace(/]/g, "]]")}].sys.tables) AS [table_count],
-            (SELECT COUNT(*) FROM [${db.replace(/]/g, "]]")}].sys.views) AS [view_count],
-            (SELECT COUNT(*) FROM [${db.replace(/]/g, "]]")}].sys.procedures) AS [procedure_count]
+            (SELECT COUNT(*) FROM ${eDb}.sys.tables) AS [table_count],
+            (SELECT COUNT(*) FROM ${eDb}.sys.views) AS [view_count],
+            (SELECT COUNT(*) FROM ${eDb}.sys.procedures) AS [procedure_count]
           FROM sys.databases d
-          WHERE d.name = '${db.replace(/'/g, "''")}'`
+          WHERE d.name = @database`,
+          { database: db }
         );
 
         return {

@@ -6,6 +6,7 @@ import {
   validateQuery,
   ensureRowLimit,
   applyMasking,
+  escapeIdentifier,
 } from "../utils/security.js";
 import { formatResultSet } from "../utils/formatter.js";
 
@@ -44,7 +45,7 @@ export function registerQueryTools(server: McpServer, config: AppConfig): void {
 
         // Optionally switch database context
         const query = database
-          ? `USE [${database.replace(/]/g, "]]")}];\n${limited}`
+          ? `USE ${escapeIdentifier(database)};\n${limited}`
           : limited;
 
         const result = await executeQuery(config.connection, query);
@@ -102,7 +103,7 @@ export function registerQueryTools(server: McpServer, config: AppConfig): void {
         }
 
         const query = database
-          ? `USE [${database.replace(/]/g, "]]")}];\n${sqlQuery}`
+          ? `USE ${escapeIdentifier(database)};\n${sqlQuery}`
           : sqlQuery;
 
         const result = await executeQuery(config.connection, query);
