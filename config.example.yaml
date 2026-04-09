@@ -7,12 +7,26 @@ connection:
   database: MyDatabase
   authentication:
     type: sql          # sql | windows | azure-ad
+
+    # --- SQL Authentication ---
     user: sa
     password: YourPassword123
-    # domain: MYDOMAIN          # for windows auth
-    # clientId: xxx             # for azure-ad
-    # clientSecret: xxx         # for azure-ad
-    # tenantId: xxx             # for azure-ad
+
+    # --- Windows Authentication (NTLM) ---
+    # type: windows
+    # user: MyUser
+    # password: MyPassword
+    # domain: MYDOMAIN        # optional
+
+    # --- Windows Authentication (SSPI / Integrated Security) ---
+    # type: windows            # no user/password needed
+    #                          # requires: npm install msnodesqlv8
+
+    # --- Azure AD ---
+    # type: azure-ad
+    # clientId: xxx
+    # clientSecret: xxx
+    # tenantId: xxx
   encrypt: false
   trustServerCertificate: true
   connectionTimeout: 15000

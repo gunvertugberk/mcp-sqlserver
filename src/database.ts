@@ -28,29 +28,33 @@ function buildSqlConfig(config: ConnectionConfig): sql.config {
       break;
 
     case "windows":
-      // NTLM auth with explicit domain credentials
       if (config.authentication.user && config.authentication.password) {
-        base.domain = config.authentication.domain;
-        base.user = config.authentication.user;
-        base.password = config.authentication.password;
+        // NTLM — works with tedious, no extra packages needed
+        base.authentication = {
+          type: "ntlm",
+          options: {
+            domain: config.authentication.domain || "",
+            userName: config.authentication.user,
+            password: config.authentication.password,
+          },
+        };
       } else {
-        // Integrated security (SSPI) — use current Windows session
-        // Requires msnodesqlv8 driver to be installed
+        // SSPI (Integrated Security) — requires msnodesqlv8
         try {
           require("msnodesqlv8");
           const server = config.host;
           const db = config.database || "master";
           (base as any).connectionString =
             `Driver={ODBC Driver 17 for SQL Server};Server=${server};Database=${db};Trusted_Connection=yes;`;
-          // Clear individual connection properties to avoid conflicts
           (base as any).server = undefined;
           (base as any).port = undefined;
           (base as any).database = undefined;
         } catch {
           throw new Error(
-            "Windows Authentication without user/password requires the 'msnodesqlv8' package. " +
-            "Install it with: npm install msnodesqlv8\n" +
-            "Alternatively, provide user, password, and domain in the config for NTLM authentication."
+            "Windows Authentication (SSPI) without credentials requires 'msnodesqlv8'.\n" +
+            "Either:\n" +
+            "  1. Provide user, password (and optionally domain) in config for NTLM auth\n" +
+            "  2. Install msnodesqlv8: npm install msnodesqlv8"
           );
         }
       }

@@ -162,14 +162,11 @@ export function loadConfig(configPath?: string): AppConfig {
     envOverrides
   );
 
-  // Windows auth uses the current OS session — clear SQL default credentials
+  // Windows auth: clear default SQL credentials (sa/"") unless explicitly provided
   if (connection.authentication.type === "windows") {
-    if (!fileConfig.connection?.authentication?.user) {
-      connection.authentication.user = undefined;
-    }
-    if (!fileConfig.connection?.authentication?.password) {
-      connection.authentication.password = undefined;
-    }
+    const authCfg = fileConfig.connection?.authentication;
+    if (!authCfg?.user) connection.authentication.user = undefined;
+    if (!authCfg?.password) connection.authentication.password = undefined;
   }
 
   const security = deepMerge(
