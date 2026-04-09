@@ -1,6 +1,6 @@
 {
   "name": "@tugberkgunver/mcp-sqlserver",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A powerful MCP server for SQL Server — schema discovery, query execution, DDL, stored procedures, performance diagnostics & more.",
   "main": "dist/index.js",
   "bin": {
@@ -25,8 +25,16 @@
     "database",
     "dba"
   ],
-  "author": "",
+  "author": "Tugberk Gunver",
   "license": "MIT",
+  "homepage": "https://github.com/gunvertugberk/mcp-sqlserver#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gunvertugberk/mcp-sqlserver.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gunvertugberk/mcp-sqlserver/issues"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "mssql": "^11.0.1",

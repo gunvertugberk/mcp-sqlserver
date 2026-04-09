@@ -45,9 +45,10 @@ A powerful [Model Context Protocol (MCP)](https://modelcontextprotocol.io) serve
 - Query type validation per mode
 
 ### Authentication
-- SQL Server Authentication
-- Windows Authentication
-- Azure Active Directory
+- **SQL Server Authentication** — username/password
+- **Windows Authentication (NTLM)** — domain credentials, no extra packages needed
+- **Windows Authentication (SSPI)** — passwordless, uses current Windows session (requires `msnodesqlv8`)
+- **Azure Active Directory** — service principal
 
 ## Quick Start
 
@@ -242,6 +243,58 @@ Add to `~/.windsurf/mcp.json`:
 }
 ```
 
+## Windows Authentication
+
+Two modes are supported for Windows Authentication:
+
+### NTLM (domain + username + password)
+
+Works out of the box with no extra packages. Provide your Windows domain credentials in the config:
+
+```yaml
+connection:
+  host: YOUR_SERVER\SQLEXPRESS
+  authentication:
+    type: windows
+    user: YourUsername
+    password: YourPassword
+    domain: YOUR_DOMAIN    # optional, defaults to server's domain
+  trustServerCertificate: true
+```
+
+### SSPI / Integrated Security (passwordless)
+
+Uses your current Windows login session — no credentials needed. Requires the [`msnodesqlv8`](https://www.npmjs.com/package/msnodesqlv8) package:
+
+```bash
+npm install msnodesqlv8
+```
+
+```yaml
+connection:
+  host: YOUR_SERVER\SQLEXPRESS
+  authentication:
+    type: windows
+  trustServerCertificate: true
+```
+
+> **Note:** When using `npx`, optional dependencies like `msnodesqlv8` may not be installed automatically. For SSPI, consider installing the package globally (`npm install -g @tugberkgunver/mcp-sqlserver msnodesqlv8`) or use NTLM mode instead.
+
+### Windows — MCP Configuration
+
+On Windows, use `cmd` as the command wrapper:
+
+```json
+{
+  "mcpServers": {
+    "mssql": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@tugberkgunver/mcp-sqlserver", "--config", "path/to/config.yaml"]
+    }
+  }
+}
+```
+
 ## Environment Variables
 
 | Variable | Description |
@@ -287,11 +340,11 @@ Pattern format: `[schema.]table.column` (use `*` as wildcard)
 ## Development
 
 ```bash
-git clone https://github.com/gunvertugberk/@tugberkgunver/mcp-sqlserver-server.git
-cd @tugberkgunver/mcp-sqlserver
+git clone https://github.com/gunvertugberk/mcp-sqlserver.git
+cd mcp-sqlserver
 npm install
 npm run build
-npm start -- --config ./@tugberkgunver/mcp-sqlserver.yaml
+npm start -- --config ./mssql-mcp.yaml
 ```
 
 ## License

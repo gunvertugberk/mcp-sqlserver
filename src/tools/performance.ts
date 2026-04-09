@@ -21,38 +21,48 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
       try {
         const db = database ?? config.connection.database;
 
-        const planQuery = database
-          ? `USE [${db.replace(/]/g, "]]")}];\nSET SHOWPLAN_TEXT ON;\n${sqlQuery}\nSET SHOWPLAN_TEXT OFF;`
-          : `SET SHOWPLAN_TEXT ON;\n${sqlQuery}\nSET SHOWPLAN_TEXT OFF;`;
+        // Switch database context first (separate batch)
+        if (database) {
+          await executeQuery(
+            config.connection,
+            `USE [${db.replace(/]/g, "]]")}]`
+          );
+        }
 
-        // We need to use SET SHOWPLAN_XML for better parsing
-        const xmlQuery = database
-          ? `USE [${db.replace(/]/g, "]]")}];\nSET SHOWPLAN_XML ON;\nGO\n${sqlQuery}\nGO\nSET SHOWPLAN_XML OFF;`
-          : sqlQuery;
+        // SET SHOWPLAN_TEXT must be the only statement in its batch
+        await executeQuery(config.connection, "SET SHOWPLAN_TEXT ON");
 
-        // Use text plan as it's simpler and more readable for AI
-        const result = await executeQuery(config.connection, planQuery);
+        try {
+          const result = await executeQuery(config.connection, sqlQuery);
 
-        if (result.recordset && result.recordset.length > 0) {
-          const planText = result.recordset
-            .map((r: any) => r["StmtText"] ?? Object.values(r)[0])
-            .join("\n");
+          // Turn off SHOWPLAN before returning
+          await executeQuery(config.connection, "SET SHOWPLAN_TEXT OFF");
+
+          if (result.recordset && result.recordset.length > 0) {
+            const planText = result.recordset
+              .map((r: any) => r["StmtText"] ?? Object.values(r)[0])
+              .join("\n");
+
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `## Execution Plan\n\`\`\`\n${planText}\n\`\`\``,
+                },
+              ],
+            };
+          }
 
           return {
             content: [
-              {
-                type: "text" as const,
-                text: `## Execution Plan\n\`\`\`\n${planText}\n\`\`\``,
-              },
+              { type: "text" as const, text: "No execution plan returned." },
             ],
           };
+        } catch (err: any) {
+          // Ensure SHOWPLAN is turned off even on error
+          await executeQuery(config.connection, "SET SHOWPLAN_TEXT OFF").catch(() => {});
+          throw err;
         }
-
-        return {
-          content: [
-            { type: "text" as const, text: "No execution plan returned." },
-          ],
-        };
       } catch (err: any) {
         return {
           content: [
