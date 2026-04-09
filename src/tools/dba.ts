@@ -158,7 +158,7 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
             s.program_name,
             DB_NAME(s.database_id) AS [database],
             t.transaction_id,
-            t.name AS [transaction_name],
+            at.name AS [transaction_name],
             DATEDIFF(SECOND, at.transaction_begin_time, GETDATE()) AS [duration_seconds],
             at.transaction_begin_time,
             CASE at.transaction_type
