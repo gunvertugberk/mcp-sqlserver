@@ -1,6 +1,6 @@
 {
   "name": "@tugberkgunver/mcp-sqlserver",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A powerful MCP server for SQL Server — schema discovery, query execution, DDL, stored procedures, performance diagnostics & more.",
   "main": "dist/index.js",
   "bin": {
