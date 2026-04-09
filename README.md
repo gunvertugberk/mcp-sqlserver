@@ -4,6 +4,11 @@ A powerful [Model Context Protocol (MCP)](https://modelcontextprotocol.io) serve
 
 **37 tools** across 6 categories: schema discovery, query execution, DDL, stored procedures, performance/DBA diagnostics, and developer utilities.
 
+[![npm version](https://img.shields.io/npm/v/@tugberkgunver/mcp-sqlserver)](https://www.npmjs.com/package/@tugberkgunver/mcp-sqlserver)
+[![GitHub release](https://img.shields.io/github/v/release/gunvertugberk/mcp-sqlserver)](https://github.com/gunvertugberk/mcp-sqlserver/releases)
+
+> **Changelog**: See [CHANGELOG.md](CHANGELOG.md) for version history or [GitHub Releases](https://github.com/gunvertugberk/mcp-sqlserver/releases) for detailed release notes.
+
 ## What's New in v1.2
 
 - **16 new tools** — DBA diagnostics, code generation, ER diagrams, schema diff, data sampling, and more
