@@ -157,10 +157,20 @@ export function loadConfig(configPath?: string): AppConfig {
     };
   }
 
-  const connection = deepMerge(
+  let connection = deepMerge(
     deepMerge(DEFAULT_CONNECTION, (fileConfig.connection ?? {}) as Partial<ConnectionConfig>),
     envOverrides
   );
+
+  // Windows auth uses the current OS session — clear SQL default credentials
+  if (connection.authentication.type === "windows") {
+    if (!fileConfig.connection?.authentication?.user) {
+      connection.authentication.user = undefined;
+    }
+    if (!fileConfig.connection?.authentication?.password) {
+      connection.authentication.password = undefined;
+    }
+  }
 
   const security = deepMerge(
     DEFAULT_SECURITY,

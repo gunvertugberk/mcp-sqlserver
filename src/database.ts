@@ -28,9 +28,32 @@ function buildSqlConfig(config: ConnectionConfig): sql.config {
       break;
 
     case "windows":
-      base.domain = config.authentication.domain;
-      base.user = config.authentication.user;
-      base.password = config.authentication.password;
+      // NTLM auth with explicit domain credentials
+      if (config.authentication.user && config.authentication.password) {
+        base.domain = config.authentication.domain;
+        base.user = config.authentication.user;
+        base.password = config.authentication.password;
+      } else {
+        // Integrated security (SSPI) — use current Windows session
+        // Requires msnodesqlv8 driver to be installed
+        try {
+          require("msnodesqlv8");
+          const server = config.host;
+          const db = config.database || "master";
+          (base as any).connectionString =
+            `Driver={ODBC Driver 17 for SQL Server};Server=${server};Database=${db};Trusted_Connection=yes;`;
+          // Clear individual connection properties to avoid conflicts
+          (base as any).server = undefined;
+          (base as any).port = undefined;
+          (base as any).database = undefined;
+        } catch {
+          throw new Error(
+            "Windows Authentication without user/password requires the 'msnodesqlv8' package. " +
+            "Install it with: npm install msnodesqlv8\n" +
+            "Alternatively, provide user, password, and domain in the config for NTLM authentication."
+          );
+        }
+      }
       break;
 
     case "azure-ad":
