@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { AppConfig } from "../config.js";
+import { resolveServer, type AppConfig } from "../config.js";
 import { executeQuery } from "../database.js";
 import { isDatabaseAllowed, isSchemaAllowed, escapeIdentifier } from "../utils/security.js";
 import { formatResultSet } from "../utils/formatter.js";
@@ -10,17 +10,22 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
   server.tool(
     "list_databases",
     "List all accessible databases on the SQL Server instance",
-    {},
-    async () => {
+    {
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
+    },
+    async ({ server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
       const result = await executeQuery(
-        config.connection,
+        connection,
         `SELECT name, database_id, state_desc, recovery_model_desc, compatibility_level
          FROM sys.databases
-         ORDER BY name`
+         ORDER BY name`,
+        undefined,
+        serverName
       );
 
       const filtered = result.recordset.filter((r: any) =>
-        isDatabaseAllowed(r.name, config.security)
+        isDatabaseAllowed(r.name, security)
       );
 
       return {
@@ -43,24 +48,28 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         .string()
         .optional()
         .describe("Database name (uses connection default if omitted)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ database }) => {
-      const db = database ?? config.connection.database;
-      if (!isDatabaseAllowed(db, config.security)) {
+    async ({ database, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
       const eDb = escapeIdentifier(db);
       const result = await executeQuery(
-        config.connection,
+        connection,
         `SELECT s.name AS schema_name, s.schema_id, p.name AS owner
          FROM ${eDb}.sys.schemas s
          JOIN ${eDb}.sys.database_principals p ON s.principal_id = p.principal_id
-         ORDER BY s.name`
+         ORDER BY s.name`,
+        undefined,
+        serverName
       );
 
       const filtered = result.recordset.filter((r: any) =>
-        isSchemaAllowed(r.schema_name, config.security)
+        isSchemaAllowed(r.schema_name, security)
       );
 
       return {
@@ -84,10 +93,12 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         .optional()
         .describe("Database name (uses connection default if omitted)"),
       schema: z.string().optional().describe("Schema name filter (e.g. 'dbo')"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ database, schema }) => {
-      const db = database ?? config.connection.database;
-      if (!isDatabaseAllowed(db, config.security)) {
+    async ({ database, schema, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
@@ -115,10 +126,10 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         GROUP BY s.name, t.name, p.rows
         ORDER BY s.name, t.name`;
 
-      const result = await executeQuery(config.connection, query, params);
+      const result = await executeQuery(connection, query, params, serverName);
 
       const filtered = result.recordset.filter((r: any) =>
-        isSchemaAllowed(r.schema, config.security)
+        isSchemaAllowed(r.schema, security)
       );
 
       return {
@@ -142,10 +153,12 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         .optional()
         .describe("Database name (uses connection default if omitted)"),
       schema: z.string().optional().describe("Schema name filter"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ database, schema }) => {
-      const db = database ?? config.connection.database;
-      if (!isDatabaseAllowed(db, config.security)) {
+    async ({ database, schema, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
@@ -168,10 +181,10 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
 
       query += ` ORDER BY s.name, v.name`;
 
-      const result = await executeQuery(config.connection, query, params);
+      const result = await executeQuery(connection, query, params, serverName);
 
       const filtered = result.recordset.filter((r: any) =>
-        isSchemaAllowed(r.schema, config.security)
+        isSchemaAllowed(r.schema, security)
       );
 
       return {
@@ -196,21 +209,23 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         .string()
         .optional()
         .describe("Database name (uses connection default if omitted)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ table, schema, database }) => {
-      const db = database ?? config.connection.database;
+    async ({ table, schema, database, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
       const sch = schema ?? "dbo";
 
-      if (!isDatabaseAllowed(db, config.security)) {
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
-      if (!isSchemaAllowed(sch, config.security)) {
+      if (!isSchemaAllowed(sch, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to schema: ${sch}` }] };
       }
 
       const eDb = escapeIdentifier(db);
       const result = await executeQuery(
-        config.connection,
+        connection,
         `SELECT
           c.name AS [column],
           tp.name AS [type],
@@ -231,7 +246,8 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         WHERE o.name = @table
           AND s.name = @schema
         ORDER BY c.column_id`,
-        { table, schema: sch }
+        { table, schema: sch },
+        serverName
       );
 
       if (result.recordset.length === 0) {
@@ -262,18 +278,20 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         .string()
         .optional()
         .describe("Database name (uses connection default if omitted)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ table, schema, database }) => {
-      const db = database ?? config.connection.database;
+    async ({ table, schema, database, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
       const sch = schema ?? "dbo";
 
-      if (!isDatabaseAllowed(db, config.security)) {
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
       const eDb = escapeIdentifier(db);
       const result = await executeQuery(
-        config.connection,
+        connection,
         `SELECT
           fk.name AS [fk_name],
           ps.name AS [parent_schema],
@@ -295,7 +313,8 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         WHERE pt.name = @table
           AND ps.name = @schema
         ORDER BY fk.name, fkc.constraint_column_id`,
-        { table, schema: sch }
+        { table, schema: sch },
+        serverName
       );
 
       return {
@@ -322,18 +341,20 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         .string()
         .optional()
         .describe("Database name (uses connection default if omitted)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ table, schema, database }) => {
-      const db = database ?? config.connection.database;
+    async ({ table, schema, database, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
       const sch = schema ?? "dbo";
 
-      if (!isDatabaseAllowed(db, config.security)) {
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
       const eDb = escapeIdentifier(db);
       const result = await executeQuery(
-        config.connection,
+        connection,
         `SELECT
           i.name AS [index_name],
           i.type_desc AS [type],
@@ -351,7 +372,8 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
           AND i.name IS NOT NULL
         GROUP BY i.name, i.type_desc, i.is_unique, i.is_primary_key
         ORDER BY i.is_primary_key DESC, i.name`,
-        { table, schema: sch }
+        { table, schema: sch },
+        serverName
       );
 
       return {
@@ -378,18 +400,20 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         .string()
         .optional()
         .describe("Database name (uses connection default if omitted)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ table, schema, database }) => {
-      const db = database ?? config.connection.database;
+    async ({ table, schema, database, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
       const sch = schema ?? "dbo";
 
-      if (!isDatabaseAllowed(db, config.security)) {
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
       const eDb = escapeIdentifier(db);
       const result = await executeQuery(
-        config.connection,
+        connection,
         `SELECT
           con.name AS [constraint_name],
           con.type_desc AS [type],
@@ -407,7 +431,8 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
           AND s.name = @schema
           AND con.type IN ('PK', 'UQ', 'C', 'D', 'F')
         ORDER BY con.type_desc, con.name`,
-        { table, schema: sch }
+        { table, schema: sch },
+        serverName
       );
 
       return {
@@ -434,18 +459,20 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         .string()
         .optional()
         .describe("Database name (uses connection default if omitted)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ table, schema, database }) => {
-      const db = database ?? config.connection.database;
+    async ({ table, schema, database, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
       const sch = schema ?? "dbo";
 
-      if (!isDatabaseAllowed(db, config.security)) {
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
       const eDb = escapeIdentifier(db);
       const result = await executeQuery(
-        config.connection,
+        connection,
         `SELECT
           tr.name AS [trigger_name],
           tr.is_disabled,
@@ -459,7 +486,8 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         WHERE t.name = @table
           AND s.name = @schema
         ORDER BY tr.name`,
-        { table, schema: sch }
+        { table, schema: sch },
+        serverName
       );
 
       return {

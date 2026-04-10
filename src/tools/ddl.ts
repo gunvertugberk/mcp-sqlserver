@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { AppConfig } from "../config.js";
+import { resolveServer, type AppConfig } from "../config.js";
 import { executeQuery } from "../database.js";
 import { validateQuery, escapeIdentifier } from "../utils/security.js";
 
@@ -15,9 +15,12 @@ export function registerDDLTools(server: McpServer, config: AppConfig): void {
         .string()
         .optional()
         .describe("Database name (uses connection default if omitted)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ sql: sqlQuery, database }) => {
+    async ({ sql: sqlQuery, database, server: srv }) => {
       try {
+        const { connection, security, serverName } = resolveServer(config, srv);
+
         // Verify it's DDL
         const trimmed = sqlQuery.trim();
         if (!/^\s*(CREATE|ALTER|DROP)\s/i.test(trimmed)) {
@@ -32,13 +35,13 @@ export function registerDDLTools(server: McpServer, config: AppConfig): void {
           };
         }
 
-        validateQuery(sqlQuery, config.security);
+        validateQuery(sqlQuery, security);
 
         const query = database
           ? `USE ${escapeIdentifier(database)};\n${sqlQuery}`
           : sqlQuery;
 
-        await executeQuery(config.connection, query);
+        await executeQuery(connection, query, undefined, serverName);
 
         return {
           content: [

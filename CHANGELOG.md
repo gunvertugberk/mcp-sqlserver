@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 See [GitHub Releases](https://github.com/gunvertugberk/mcp-sqlserver/releases) for full release notes.
 
+## [1.3.0] - 2026-04-10
+
+### Added
+- **Multi-server support** — Define multiple named SQL Server connections in a single config file using `connections` (plural) key
+- **`list_servers` tool** — New tool to list all configured servers with their host, database, auth type, and security mode
+- **`server` parameter** — Every tool now accepts an optional `server` parameter to target a specific named server
+- **Per-server security** — Each server can have its own security config (mode, maxRowCount, blockedDatabases, etc.) with global defaults
+- **`defaultServer` config** — Set which server is used when no `server` parameter is specified
+
+### Changed
+- `AppConfig` type refactored: `servers: Record<string, ServerEntry>` + `defaultServer` (replaces single `connection` + `security`)
+- Connection pool management now supports multiple pools keyed by server name
+- DDL tools registered if ANY configured server allows DDL (per-server check inside handler)
+- Health check HTTP endpoint now returns list of configured server names
+- Startup logging shows all configured servers with connection details
+- Backward compatible: existing single-server configs (`connection` singular) continue to work unchanged
+
 ## [1.2.2] - 2026-04-10
 
 ### Changed
@@ -89,6 +106,7 @@ See [GitHub Releases](https://github.com/gunvertugberk/mcp-sqlserver/releases) f
 - Automatic row limits
 - YAML config + environment variable support
 
+[1.3.0]: https://github.com/gunvertugberk/mcp-sqlserver/compare/v1.2.3...v1.3.0
 [1.2.2]: https://github.com/gunvertugberk/mcp-sqlserver/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/gunvertugberk/mcp-sqlserver/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/gunvertugberk/mcp-sqlserver/compare/v1.1.1...v1.2.0

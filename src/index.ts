@@ -60,11 +60,14 @@ Transport Modes:
 
   const config = loadConfig(configPath);
 
+  const serverNames = Object.keys(config.servers);
   console.error(`[mssql-mcp-server] Starting...`);
-  console.error(`[mssql-mcp-server] Host: ${config.connection.host}:${config.connection.port}`);
-  console.error(`[mssql-mcp-server] Database: ${config.connection.database}`);
-  console.error(`[mssql-mcp-server] Auth: ${config.connection.authentication.type}`);
-  console.error(`[mssql-mcp-server] Security mode: ${config.security.mode}`);
+  console.error(`[mssql-mcp-server] Servers: ${serverNames.length} configured (default: ${config.defaultServer})`);
+  for (const [name, entry] of Object.entries(config.servers)) {
+    const c = entry.connection;
+    const s = entry.security;
+    console.error(`[mssql-mcp-server]   ${name} → ${c.host}:${c.port}/${c.database} (${c.authentication.type}, ${s.mode})`);
+  }
 
   const server = createServer(config);
 
@@ -108,7 +111,7 @@ Transport Modes:
         await transport.handleRequest(req, res);
       } else if (url.pathname === "/health") {
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ status: "ok", mode: config.security.mode }));
+        res.end(JSON.stringify({ status: "ok", servers: Object.keys(config.servers) }));
       } else {
         res.writeHead(404);
         res.end("Not Found");

@@ -2,12 +2,19 @@
 
 A powerful [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server for **Microsoft SQL Server**. Connects AI assistants (Claude, Gemini, Kiro, OpenAI, Copilot, Cursor) directly to your SQL Server databases with enterprise-grade security controls.
 
-**37 tools** across 6 categories: schema discovery, query execution, DDL, stored procedures, performance/DBA diagnostics, and developer utilities.
+**38 tools** across 7 categories: schema discovery, query execution, DDL, stored procedures, performance/DBA diagnostics, developer utilities, and server management.
 
 [![npm version](https://img.shields.io/npm/v/@tugberkgunver/mcp-sqlserver)](https://www.npmjs.com/package/@tugberkgunver/mcp-sqlserver)
 [![GitHub release](https://img.shields.io/github/v/release/gunvertugberk/mcp-sqlserver)](https://github.com/gunvertugberk/mcp-sqlserver/releases)
 
 > **Changelog**: See [CHANGELOG.md](CHANGELOG.md) for version history or [GitHub Releases](https://github.com/gunvertugberk/mcp-sqlserver/releases) for detailed release notes.
+
+## What's New in v1.3
+
+- **Multi-server support** — Define dev/staging/prod servers in one config, switch with `server` parameter
+- **`list_servers` tool** — See all configured connections at a glance
+- **Per-server security** — Each server gets its own security mode, row limits, and blocked databases
+- **Backward compatible** — Existing single-server configs work without any changes
 
 ## What's New in v1.2
 
@@ -18,6 +25,13 @@ A powerful [Model Context Protocol (MCP)](https://modelcontextprotocol.io) serve
 - **Health check** — Verify connection status and server responsiveness
 
 ## Features
+
+### Server Management (1 tool)
+| Tool | Description |
+|------|-------------|
+| `list_servers` | List all configured server connections with host, database, auth, and security mode |
+
+> **Multi-server:** Every tool accepts an optional `server` parameter to target a specific named server. Omit it to use the default server.
 
 ### Schema Discovery (9 tools)
 | Tool | Description |
@@ -252,6 +266,50 @@ security:
 ```
 
 See [config.example.yaml](config.example.yaml) for all options.
+
+### Multi-Server Configuration
+
+Define multiple named servers to manage dev/staging/prod from a single config:
+
+```yaml
+defaultServer: dev
+
+connections:
+  dev:
+    host: dev-server.example.com
+    database: MyDatabase
+    authentication:
+      type: sql
+      user: sa
+      password: DevPass123
+    trustServerCertificate: true
+    security:
+      mode: admin
+      maxRowCount: 5000
+
+  prod:
+    host: prod-server.example.com
+    database: MyDatabase
+    authentication:
+      type: sql
+      user: readonly_user
+      password: ProdReadOnly
+    security:
+      mode: readonly
+      blockedDatabases: [master, msdb, tempdb, model]
+
+# Global security defaults (applied to all servers unless overridden)
+security:
+  maxRowCount: 1000
+  blockedKeywords: [xp_cmdshell, SHUTDOWN, DROP DATABASE]
+```
+
+Then use the `server` parameter in any tool call:
+```
+list_tables(server: "prod", database: "MyDatabase")
+health_check(server: "dev")
+compare_schemas(source_database: "DevDB", target_database: "StagingDB", server: "dev")
+```
 
 ### MCP Client Configuration
 

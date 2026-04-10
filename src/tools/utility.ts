@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { AppConfig } from "../config.js";
+import { resolveServer, type AppConfig } from "../config.js";
 import { executeQuery } from "../database.js";
 import { isDatabaseAllowed, escapeIdentifier } from "../utils/security.js";
 import { formatResultSet } from "../utils/formatter.js";
@@ -14,12 +14,15 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
       source_database: z.string().describe("Source database name (e.g. 'DevDB')"),
       target_database: z.string().describe("Target database name (e.g. 'ProdDB')"),
       schema: z.string().optional().describe("Schema filter (default: compare all schemas)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ source_database, target_database, schema }) => {
-      if (!isDatabaseAllowed(source_database, config.security)) {
+    async ({ source_database, target_database, schema, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+
+      if (!isDatabaseAllowed(source_database, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${source_database}` }] };
       }
-      if (!isDatabaseAllowed(target_database, config.security)) {
+      if (!isDatabaseAllowed(target_database, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${target_database}` }] };
       }
 
@@ -31,7 +34,7 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
 
         // 1. Tables only in source
         const onlyInSource = await executeQuery(
-          config.connection,
+          connection,
           `SELECT s.name AS [schema], t.name AS [table]
            FROM ${eSrc}.sys.tables t
            JOIN ${eSrc}.sys.schemas s ON t.schema_id = s.schema_id
@@ -41,12 +44,13 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
              WHERE t2.name = t.name AND s2.name = s.name
            ) ${schemaFilter}
            ORDER BY s.name, t.name`,
-          params
+          params,
+          serverName
         );
 
         // 2. Tables only in target
         const onlyInTarget = await executeQuery(
-          config.connection,
+          connection,
           `SELECT s.name AS [schema], t.name AS [table]
            FROM ${eTgt}.sys.tables t
            JOIN ${eTgt}.sys.schemas s ON t.schema_id = s.schema_id
@@ -56,12 +60,13 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
              WHERE t2.name = t.name AND s2.name = s.name
            ) ${schemaFilter}
            ORDER BY s.name, t.name`,
-          params
+          params,
+          serverName
         );
 
         // 3. Column differences in shared tables
         const columnDiffs = await executeQuery(
-          config.connection,
+          connection,
           `SELECT
             s1.name AS [schema],
             t1.name AS [table],
@@ -84,12 +89,13 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
             AND (tp1.name != tp2.name OR c1.max_length != c2.max_length OR c1.is_nullable != c2.is_nullable)
             ${schemaFilter.replace('s.name', 's1.name')}
           ORDER BY s1.name, t1.name, c1.name`,
-          params
+          params,
+          serverName
         );
 
         // 4. Columns only in source (for shared tables)
         const colsOnlyInSource = await executeQuery(
-          config.connection,
+          connection,
           `SELECT s1.name AS [schema], t1.name AS [table], c1.name AS [column], tp1.name AS [type]
            FROM ${eSrc}.sys.columns c1
            JOIN ${eSrc}.sys.objects t1 ON c1.object_id = t1.object_id
@@ -109,12 +115,13 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
              )
              ${schemaFilter.replace('s.name', 's1.name')}
            ORDER BY s1.name, t1.name, c1.name`,
-          params
+          params,
+          serverName
         );
 
         // 5. Columns only in target (for shared tables)
         const colsOnlyInTarget = await executeQuery(
-          config.connection,
+          connection,
           `SELECT s1.name AS [schema], t1.name AS [table], c1.name AS [column], tp1.name AS [type]
            FROM ${eTgt}.sys.columns c1
            JOIN ${eTgt}.sys.objects t1 ON c1.object_id = t1.object_id
@@ -134,7 +141,8 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
              )
              ${schemaFilter.replace('s.name', 's1.name')}
            ORDER BY s1.name, t1.name, c1.name`,
-          params
+          params,
+          serverName
         );
 
         // Build report
@@ -210,19 +218,21 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
       language: z
         .enum(["typescript", "csharp", "sql"])
         .describe("Output language: typescript, csharp, or sql (CREATE TABLE)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ table, schema, database, language }) => {
-      const db = database ?? config.connection.database;
+    async ({ table, schema, database, language, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
       const sch = schema ?? "dbo";
 
-      if (!isDatabaseAllowed(db, config.security)) {
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
       try {
         const eDb = escapeIdentifier(db);
         const result = await executeQuery(
-          config.connection,
+          connection,
           `SELECT
             c.name AS [column],
             tp.name AS [type],
@@ -239,7 +249,8 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
           LEFT JOIN ${eDb}.sys.default_constraints dc ON c.default_object_id = dc.object_id
           WHERE o.name = @table AND s.name = @schema
           ORDER BY c.column_id`,
-          { table, schema: sch }
+          { table, schema: sch },
+          serverName
         );
 
         if (result.recordset.length === 0) {
@@ -279,13 +290,15 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
         .optional()
         .describe("Database name (uses connection default if omitted)"),
       top: z.number().optional().describe("Max rows to generate (default: 100)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ table, schema, database, top }) => {
-      const db = database ?? config.connection.database;
+    async ({ table, schema, database, top, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
       const sch = schema ?? "dbo";
-      const limit = Math.min(top ?? 100, config.security.maxRowCount);
+      const limit = Math.min(top ?? 100, security.maxRowCount);
 
-      if (!isDatabaseAllowed(db, config.security)) {
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
@@ -295,7 +308,7 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
 
         // Get column info (exclude identity/computed)
         const colResult = await executeQuery(
-          config.connection,
+          connection,
           `SELECT c.name, tp.name AS type
            FROM ${eDb}.sys.columns c
            JOIN ${eDb}.sys.types tp ON c.user_type_id = tp.user_type_id
@@ -304,7 +317,8 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
            WHERE o.name = @table AND s.name = @schema
              AND c.is_identity = 0 AND c.is_computed = 0
            ORDER BY c.column_id`,
-          { table, schema: sch }
+          { table, schema: sch },
+          serverName
         );
 
         if (colResult.recordset.length === 0) {
@@ -317,8 +331,10 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
 
         // Get data
         const dataResult = await executeQuery(
-          config.connection,
-          `USE ${eDb}; SELECT TOP (${limit}) ${colList} FROM ${eTable}`
+          connection,
+          `USE ${eDb}; SELECT TOP (${limit}) ${colList} FROM ${eTable}`,
+          undefined,
+          serverName
         );
 
         if (dataResult.recordset.length === 0) {
@@ -359,10 +375,12 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
         .optional()
         .describe("Database name (uses connection default if omitted)"),
       schema: z.string().optional().describe("Schema filter (default: all schemas)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ database, schema }) => {
-      const db = database ?? config.connection.database;
-      if (!isDatabaseAllowed(db, config.security)) {
+    async ({ database, schema, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
@@ -373,7 +391,7 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
 
         // Get all tables and their columns
         const tablesResult = await executeQuery(
-          config.connection,
+          connection,
           `SELECT
             s.name AS [schema], t.name AS [table],
             c.name AS [column], tp.name AS [type],
@@ -384,12 +402,13 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
           JOIN ${eDb}.sys.schemas s ON t.schema_id = s.schema_id
           WHERE 1=1 ${schemaFilter.replace('ps.name', 's.name')}
           ORDER BY s.name, t.name, c.column_id`,
-          params
+          params,
+          serverName
         );
 
         // Get foreign keys
         const fkResult = await executeQuery(
-          config.connection,
+          connection,
           `SELECT
             ps.name AS [parent_schema], pt.name AS [parent_table], pc.name AS [parent_column],
             rs.name AS [ref_schema], rt.name AS [ref_table], rc.name AS [ref_column],
@@ -404,7 +423,8 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
           JOIN ${eDb}.sys.columns rc ON fkc.referenced_object_id = rc.object_id AND fkc.referenced_column_id = rc.column_id
           WHERE 1=1 ${schemaFilter}
           ORDER BY pt.name, fk.name`,
-          params
+          params,
+          serverName
         );
 
         // Build Mermaid diagram
@@ -465,13 +485,15 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
         .optional()
         .describe("Database name (uses connection default if omitted)"),
       count: z.number().optional().describe("Number of sample rows (default: 10, max: 100)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ table, schema, database, count }) => {
-      const db = database ?? config.connection.database;
+    async ({ table, schema, database, count, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
       const sch = schema ?? "dbo";
-      const n = Math.min(count ?? 10, 100, config.security.maxRowCount);
+      const n = Math.min(count ?? 10, 100, security.maxRowCount);
 
-      if (!isDatabaseAllowed(db, config.security)) {
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
@@ -479,8 +501,10 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
         const eDb = escapeIdentifier(db);
         const eTable = `${eDb}.${escapeIdentifier(sch)}.${escapeIdentifier(table)}`;
         const result = await executeQuery(
-          config.connection,
-          `SELECT TOP (${n}) * FROM ${eTable} ORDER BY NEWID()`
+          connection,
+          `SELECT TOP (${n}) * FROM ${eTable} ORDER BY NEWID()`,
+          undefined,
+          serverName
         );
 
         if (result.recordset.length === 0) {
@@ -508,9 +532,12 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
         .string()
         .optional()
         .describe("Database name (uses connection default if omitted)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ sql: sqlQuery, format, database }) => {
+    async ({ sql: sqlQuery, format, database, server: srv }) => {
       try {
+        const { connection, security, serverName } = resolveServer(config, srv);
+
         const trimmed = sqlQuery.trim();
         if (!/^\s*(SELECT|WITH)\s/i.test(trimmed)) {
           return {
@@ -520,14 +547,14 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
         }
 
         const { ensureRowLimit, validateQuery: validate } = await import("../utils/security.js");
-        validate(sqlQuery, config.security);
-        const limited = ensureRowLimit(sqlQuery, config.security.maxRowCount);
+        validate(sqlQuery, security);
+        const limited = ensureRowLimit(sqlQuery, security.maxRowCount);
 
         const query = database
           ? `USE ${escapeIdentifier(database)};\n${limited}`
           : limited;
 
-        const result = await executeQuery(config.connection, query);
+        const result = await executeQuery(connection, query, undefined, serverName);
 
         if (!result.recordset || result.recordset.length === 0) {
           return { content: [{ type: "text" as const, text: "No results." }] };

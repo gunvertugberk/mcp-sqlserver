@@ -11,8 +11,33 @@ import { registerDBATools } from "./tools/dba.js";
 export function createServer(config: AppConfig): McpServer {
   const server = new McpServer({
     name: "mssql-mcp-server",
-    version: "1.2.0",
+    version: "1.3.0",
   });
+
+  // ─── list_servers ───
+  server.tool(
+    "list_servers",
+    "List all configured SQL Server connections and their details (host, database, auth type, security mode)",
+    {},
+    async () => {
+      const lines: string[] = ["## Configured Servers\n"];
+
+      for (const [name, entry] of Object.entries(config.servers)) {
+        const isDefault = name === config.defaultServer;
+        const c = entry.connection;
+        const s = entry.security;
+        lines.push(`### ${name}${isDefault ? " (default)" : ""}`);
+        lines.push(`- **Host**: ${c.host}:${c.port}`);
+        lines.push(`- **Database**: ${c.database}`);
+        lines.push(`- **Auth**: ${c.authentication.type}`);
+        lines.push(`- **Security Mode**: ${s.mode}`);
+        lines.push(`- **Max Rows**: ${s.maxRowCount}`);
+        lines.push("");
+      }
+
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    }
+  );
 
   // Always register schema discovery (safe, read-only)
   registerSchemaTools(server, config);
@@ -20,8 +45,11 @@ export function createServer(config: AppConfig): McpServer {
   // Always register read queries
   registerQueryTools(server, config);
 
-  // Register DDL tools only if allowed
-  if (config.security.allowDDL || config.security.mode === "admin") {
+  // Register DDL tools if ANY server allows DDL (per-server check inside handler)
+  const anyDDL = Object.values(config.servers).some(
+    (s) => s.security.allowDDL || s.security.mode === "admin"
+  );
+  if (anyDDL) {
     registerDDLTools(server, config);
   }
 

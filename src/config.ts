@@ -2,6 +2,8 @@ import { readFileSync, existsSync } from "fs";
 import { parse as parseYaml } from "yaml";
 import { resolve } from "path";
 
+// ─── Types ───
+
 export type AuthType = "sql" | "windows" | "azure-ad";
 export type SecurityMode = "readonly" | "readwrite" | "admin";
 
@@ -48,10 +50,17 @@ export interface SecurityConfig {
   maskColumns: MaskRule[];
 }
 
-export interface AppConfig {
+export interface ServerEntry {
   connection: ConnectionConfig;
   security: SecurityConfig;
 }
+
+export interface AppConfig {
+  servers: Record<string, ServerEntry>;
+  defaultServer: string;
+}
+
+// ─── Defaults ───
 
 const DEFAULT_CONNECTION: ConnectionConfig = {
   host: "localhost",
@@ -93,6 +102,8 @@ const DEFAULT_SECURITY: SecurityConfig = {
   maskColumns: [],
 };
 
+// ─── Helpers ───
+
 function deepMerge<T extends Record<string, any>>(target: T, source: Partial<T>): T {
   const result = { ...target };
   for (const key of Object.keys(source) as (keyof T)[]) {
@@ -113,6 +124,41 @@ function deepMerge<T extends Record<string, any>>(target: T, source: Partial<T>)
   return result;
 }
 
+function applyModeDefaults(security: SecurityConfig, rawOverrides?: any): void {
+  if (security.mode === "readwrite") {
+    if (rawOverrides?.allowMutations === undefined) {
+      security.allowMutations = true;
+    }
+  } else if (security.mode === "admin") {
+    if (rawOverrides?.allowMutations === undefined) {
+      security.allowMutations = true;
+    }
+    if (rawOverrides?.allowDDL === undefined) {
+      security.allowDDL = true;
+    }
+  }
+}
+
+/**
+ * Resolve a server entry by name.
+ * Returns connection + security config for the named server.
+ * Throws if the server name is not found in config.
+ */
+export function resolveServer(
+  config: AppConfig,
+  serverName?: string
+): ServerEntry & { serverName: string } {
+  const name = serverName ?? config.defaultServer;
+  const entry = config.servers[name];
+  if (!entry) {
+    const available = Object.keys(config.servers).join(", ");
+    throw new Error(`Unknown server: '${name}'. Available servers: ${available}`);
+  }
+  return { ...entry, serverName: name };
+}
+
+// ─── Config Loading ───
+
 export function loadConfig(configPath?: string): AppConfig {
   // 1. Try explicit path
   // 2. Try env var MSSQL_MCP_CONFIG
@@ -126,7 +172,7 @@ export function loadConfig(configPath?: string): AppConfig {
     resolve(process.cwd(), "mssql-mcp.yml"),
   ].filter(Boolean) as string[];
 
-  let fileConfig: Partial<AppConfig> = {};
+  let fileConfig: any = {};
 
   for (const p of paths) {
     if (existsSync(p)) {
@@ -136,6 +182,18 @@ export function loadConfig(configPath?: string): AppConfig {
     }
   }
 
+  // Detect multi-server format: "connections" (plural) key
+  if (fileConfig.connections && typeof fileConfig.connections === "object") {
+    return loadMultiServer(fileConfig);
+  }
+
+  // Single-server format (backward compatible): "connection" (singular)
+  return loadSingleServer(fileConfig);
+}
+
+// ─── Single-server loading (backward compatible) ───
+
+function loadSingleServer(fileConfig: any): AppConfig {
   // Environment variable overrides
   const envOverrides: Partial<ConnectionConfig> = {};
   if (process.env.MSSQL_HOST) envOverrides.host = process.env.MSSQL_HOST;
@@ -175,18 +233,68 @@ export function loadConfig(configPath?: string): AppConfig {
   );
 
   // Apply mode-based defaults
-  if (security.mode === "readwrite") {
-    if (fileConfig.security?.allowMutations === undefined) {
-      security.allowMutations = true;
+  applyModeDefaults(security, fileConfig.security);
+
+  return {
+    servers: { default: { connection, security } },
+    defaultServer: "default",
+  };
+}
+
+// ─── Multi-server loading ───
+
+function loadMultiServer(fileConfig: any): AppConfig {
+  // Global security defaults (applied to all servers, then overridden per-server)
+  const globalSecurity = deepMerge(
+    DEFAULT_SECURITY,
+    (fileConfig.security ?? {}) as Partial<SecurityConfig>
+  );
+
+  const servers: Record<string, ServerEntry> = {};
+  const rawConnections = fileConfig.connections as Record<string, any>;
+
+  for (const [name, rawEntry] of Object.entries(rawConnections)) {
+    if (!rawEntry || typeof rawEntry !== "object") continue;
+
+    // Separate per-server security override from connection fields
+    const { security: perServerSecurity, ...connectionFields } = rawEntry as any;
+
+    // Build connection config: defaults + per-server fields
+    const connection = deepMerge(
+      DEFAULT_CONNECTION,
+      connectionFields as Partial<ConnectionConfig>
+    );
+
+    // Windows auth cleanup
+    if (connection.authentication.type === "windows") {
+      const authCfg = connectionFields.authentication;
+      if (!authCfg?.user) connection.authentication.user = undefined;
+      if (!authCfg?.password) connection.authentication.password = undefined;
     }
-  } else if (security.mode === "admin") {
-    if (fileConfig.security?.allowMutations === undefined) {
-      security.allowMutations = true;
-    }
-    if (fileConfig.security?.allowDDL === undefined) {
-      security.allowDDL = true;
-    }
+
+    // Build security: global defaults + per-server overrides
+    const security = perServerSecurity
+      ? deepMerge({ ...globalSecurity }, perServerSecurity as Partial<SecurityConfig>)
+      : { ...globalSecurity };
+
+    // Apply mode-based defaults
+    applyModeDefaults(security, perServerSecurity);
+
+    servers[name] = { connection, security };
   }
 
-  return { connection, security };
+  const defaultServer =
+    fileConfig.defaultServer ?? Object.keys(servers)[0] ?? "default";
+
+  // Apply env var overrides to the default server only
+  if (servers[defaultServer]) {
+    const conn = servers[defaultServer].connection;
+    if (process.env.MSSQL_HOST) conn.host = process.env.MSSQL_HOST;
+    if (process.env.MSSQL_PORT) conn.port = parseInt(process.env.MSSQL_PORT, 10);
+    if (process.env.MSSQL_DATABASE) conn.database = process.env.MSSQL_DATABASE;
+    if (process.env.MSSQL_USER) conn.authentication.user = process.env.MSSQL_USER;
+    if (process.env.MSSQL_PASSWORD) conn.authentication.password = process.env.MSSQL_PASSWORD;
+  }
+
+  return { servers, defaultServer };
 }

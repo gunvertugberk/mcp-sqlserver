@@ -1,7 +1,7 @@
 import sql from "mssql";
 import type { ConnectionConfig } from "./config.js";
 
-let pool: sql.ConnectionPool | null = null;
+const pools = new Map<string, sql.ConnectionPool>();
 
 function buildSqlConfig(config: ConnectionConfig): sql.config {
   const base: sql.config = {
@@ -75,29 +75,35 @@ function buildSqlConfig(config: ConnectionConfig): sql.config {
   return base;
 }
 
-export async function getPool(config: ConnectionConfig): Promise<sql.ConnectionPool> {
-  if (pool?.connected) {
-    return pool;
+export async function getPool(
+  config: ConnectionConfig,
+  serverName: string = "default"
+): Promise<sql.ConnectionPool> {
+  const existing = pools.get(serverName);
+  if (existing?.connected) {
+    return existing;
   }
 
   const sqlConfig = buildSqlConfig(config);
-  pool = new sql.ConnectionPool(sqlConfig);
+  const newPool = new sql.ConnectionPool(sqlConfig);
 
-  pool.on("error", (err) => {
-    console.error("[mssql-mcp] Pool error:", err.message);
-    pool = null;
+  newPool.on("error", (err) => {
+    console.error(`[mssql-mcp] Pool error (${serverName}):`, err.message);
+    pools.delete(serverName);
   });
 
-  await pool.connect();
-  return pool;
+  pools.set(serverName, newPool);
+  await newPool.connect();
+  return newPool;
 }
 
 export async function executeQuery(
   config: ConnectionConfig,
   query: string,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
+  serverName: string = "default"
 ): Promise<sql.IResult<any>> {
-  const p = await getPool(config);
+  const p = await getPool(config, serverName);
   const request = p.request();
 
   if (params) {
@@ -109,9 +115,18 @@ export async function executeQuery(
   return request.query(query);
 }
 
-export async function closePool(): Promise<void> {
-  if (pool) {
-    await pool.close();
-    pool = null;
+export async function closePool(serverName?: string): Promise<void> {
+  if (serverName) {
+    const pool = pools.get(serverName);
+    if (pool) {
+      await pool.close();
+      pools.delete(serverName);
+    }
+  } else {
+    // Close all pools
+    for (const [, pool] of pools) {
+      await pool.close();
+    }
+    pools.clear();
   }
 }

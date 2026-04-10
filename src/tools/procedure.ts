@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { AppConfig } from "../config.js";
+import { resolveServer, type AppConfig } from "../config.js";
 import { executeQuery } from "../database.js";
 import { isDatabaseAllowed, isSchemaAllowed, escapeIdentifier } from "../utils/security.js";
 import { formatResultSet } from "../utils/formatter.js";
@@ -16,10 +16,12 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
         .optional()
         .describe("Database name (uses connection default if omitted)"),
       schema: z.string().optional().describe("Schema name filter"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ database, schema }) => {
-      const db = database ?? config.connection.database;
-      if (!isDatabaseAllowed(db, config.security)) {
+    async ({ database, schema, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
@@ -42,10 +44,10 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
 
       query += ` ORDER BY s.name, p.name`;
 
-      const result = await executeQuery(config.connection, query, params);
+      const result = await executeQuery(connection, query, params, serverName);
 
       const filtered = result.recordset.filter((r: any) =>
-        isSchemaAllowed(r.schema, config.security)
+        isSchemaAllowed(r.schema, security)
       );
 
       return {
@@ -72,12 +74,14 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
         .string()
         .optional()
         .describe("Database name (uses connection default if omitted)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ procedure, schema, database }) => {
-      const db = database ?? config.connection.database;
+    async ({ procedure, schema, database, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
       const sch = schema ?? "dbo";
 
-      if (!isDatabaseAllowed(db, config.security)) {
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
@@ -107,8 +111,8 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
       const srcQuery = `SELECT OBJECT_DEFINITION(OBJECT_ID('${qualifiedName.replace(/'/g, "''")}')) AS [definition]`;
 
       const [paramResult, srcResult] = await Promise.all([
-        executeQuery(config.connection, paramQuery, { procedure, schema: sch }),
-        executeQuery(config.connection, srcQuery),
+        executeQuery(connection, paramQuery, { procedure, schema: sch }, serverName),
+        executeQuery(connection, srcQuery, undefined, serverName),
       ]);
 
       const parts: string[] = [];
@@ -144,10 +148,13 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
         .string()
         .optional()
         .describe("Database name (uses connection default if omitted)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ procedure, parameters, database }) => {
+    async ({ procedure, parameters, database, server: srv }) => {
       try {
-        if (!config.security.allowMutations) {
+        const { connection, security, serverName } = resolveServer(config, srv);
+
+        if (!security.allowMutations) {
           return {
             content: [
               {
@@ -159,8 +166,8 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
           };
         }
 
-        const db = database ?? config.connection.database;
-        if (!isDatabaseAllowed(db, config.security)) {
+        const db = database ?? connection.database;
+        if (!isDatabaseAllowed(db, security)) {
           return {
             content: [{ type: "text" as const, text: `Access denied to database: ${db}` }],
             isError: true,
@@ -179,9 +186,10 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
           : `EXEC ${eProcedure} ${paramStr}`;
 
         const result = await executeQuery(
-          config.connection,
+          connection,
           execSql,
-          parameters as Record<string, unknown> | undefined
+          parameters as Record<string, unknown> | undefined,
+          serverName
         );
 
         if (result.recordset && result.recordset.length > 0) {

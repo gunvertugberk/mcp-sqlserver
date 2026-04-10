@@ -1,5 +1,5 @@
-# mssql-mcp-server configuration
-# Copy this file to mssql-mcp.yaml and adjust settings
+# ─── Single Server Configuration (backward compatible) ───
+# Use "connection" (singular) for a single server setup.
 
 connection:
   host: localhost
@@ -61,3 +61,65 @@ security:
       mask: "***"
     - pattern: "*.ssn"
       mask: "XXX-XX-XXXX"
+
+
+# ─── Multi-Server Configuration ───
+# Use "connections" (plural) to define multiple named servers.
+# Uncomment the block below and remove/comment the single "connection" block above.
+#
+# defaultServer: dev
+#
+# connections:
+#   dev:
+#     host: dev-server.example.com
+#     port: 1433
+#     database: MyDatabase
+#     authentication:
+#       type: sql
+#       user: sa
+#       password: DevPass123
+#     trustServerCertificate: true
+#     security:                    # per-server security override
+#       mode: admin
+#       maxRowCount: 5000
+#
+#   staging:
+#     host: staging-server.example.com
+#     port: 1433
+#     database: MyDatabase
+#     authentication:
+#       type: windows
+#       user: StagingUser
+#       password: StagingPass
+#       domain: CORP
+#     security:
+#       mode: readwrite
+#
+#   prod:
+#     host: prod-server.example.com
+#     database: MyDatabase
+#     authentication:
+#       type: sql
+#       user: readonly_user
+#       password: ProdReadOnly
+#     security:
+#       mode: readonly
+#       maxRowCount: 500
+#       blockedDatabases:
+#         - master
+#         - msdb
+#         - tempdb
+#         - model
+#
+# # Global security defaults (applied to all servers, overridden per-server)
+# security:
+#   maxRowCount: 1000
+#   blockedKeywords:
+#     - xp_cmdshell
+#     - SHUTDOWN
+#     - DROP DATABASE
+#     - RECONFIGURE
+#     - sp_configure
+#   maskColumns:
+#     - pattern: "*.password"
+#       mask: "***"

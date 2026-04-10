@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { AppConfig } from "../config.js";
+import { resolveServer, type AppConfig } from "../config.js";
 import { executeQuery } from "../database.js";
 import {
   validateQuery,
@@ -21,9 +21,12 @@ export function registerQueryTools(server: McpServer, config: AppConfig): void {
         .string()
         .optional()
         .describe("Database name (uses connection default if omitted)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ sql: sqlQuery, database }) => {
+    async ({ sql: sqlQuery, database, server: srv }) => {
       try {
+        const { connection, security, serverName } = resolveServer(config, srv);
+
         // Validate it's a SELECT
         const trimmed = sqlQuery.trim();
         if (!/^\s*(SELECT|WITH)\s/i.test(trimmed)) {
@@ -38,24 +41,24 @@ export function registerQueryTools(server: McpServer, config: AppConfig): void {
           };
         }
 
-        validateQuery(sqlQuery, config.security);
+        validateQuery(sqlQuery, security);
 
         // Apply row limit
-        const limited = ensureRowLimit(sqlQuery, config.security.maxRowCount);
+        const limited = ensureRowLimit(sqlQuery, security.maxRowCount);
 
         // Optionally switch database context
         const query = database
           ? `USE ${escapeIdentifier(database)};\n${limited}`
           : limited;
 
-        const result = await executeQuery(config.connection, query);
+        const result = await executeQuery(connection, query, undefined, serverName);
 
         // Apply masking
-        if (config.security.maskColumns.length > 0 && result.recordset) {
+        if (security.maskColumns.length > 0 && result.recordset) {
           result.recordset = applyMasking(
             result.recordset,
             "",
-            config.security.maskColumns
+            security.maskColumns
           ) as any;
         }
 
@@ -83,10 +86,13 @@ export function registerQueryTools(server: McpServer, config: AppConfig): void {
         .string()
         .optional()
         .describe("Database name (uses connection default if omitted)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ sql: sqlQuery, database }) => {
+    async ({ sql: sqlQuery, database, server: srv }) => {
       try {
-        validateQuery(sqlQuery, config.security);
+        const { connection, security, serverName } = resolveServer(config, srv);
+
+        validateQuery(sqlQuery, security);
 
         // Verify it's actually a mutation
         const trimmed = sqlQuery.trim();
@@ -106,7 +112,7 @@ export function registerQueryTools(server: McpServer, config: AppConfig): void {
           ? `USE ${escapeIdentifier(database)};\n${sqlQuery}`
           : sqlQuery;
 
-        const result = await executeQuery(config.connection, query);
+        const result = await executeQuery(connection, query, undefined, serverName);
 
         return {
           content: [

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { AppConfig } from "../config.js";
+import { resolveServer, type AppConfig } from "../config.js";
 import { executeQuery } from "../database.js";
 import { isDatabaseAllowed, escapeIdentifier } from "../utils/security.js";
 import { formatResultSet } from "../utils/formatter.js";
@@ -16,27 +16,31 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
         .string()
         .optional()
         .describe("Database name (uses connection default if omitted)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ sql: sqlQuery, database }) => {
+    async ({ sql: sqlQuery, database, server: srv }) => {
       try {
-        const db = database ?? config.connection.database;
+        const { connection, serverName } = resolveServer(config, srv);
+        const db = database ?? connection.database;
 
         // Switch database context first (separate batch)
         if (database) {
           await executeQuery(
-            config.connection,
-            `USE ${escapeIdentifier(db)}`
+            connection,
+            `USE ${escapeIdentifier(db)}`,
+            undefined,
+            serverName
           );
         }
 
         // SET SHOWPLAN_TEXT must be the only statement in its batch
-        await executeQuery(config.connection, "SET SHOWPLAN_TEXT ON");
+        await executeQuery(connection, "SET SHOWPLAN_TEXT ON", undefined, serverName);
 
         try {
-          const result = await executeQuery(config.connection, sqlQuery);
+          const result = await executeQuery(connection, sqlQuery, undefined, serverName);
 
           // Turn off SHOWPLAN before returning
-          await executeQuery(config.connection, "SET SHOWPLAN_TEXT OFF");
+          await executeQuery(connection, "SET SHOWPLAN_TEXT OFF", undefined, serverName);
 
           if (result.recordset && result.recordset.length > 0) {
             const planText = result.recordset
@@ -60,7 +64,7 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
           };
         } catch (err: any) {
           // Ensure SHOWPLAN is turned off even on error
-          await executeQuery(config.connection, "SET SHOWPLAN_TEXT OFF").catch(() => {});
+          await executeQuery(connection, "SET SHOWPLAN_TEXT OFF", undefined, serverName).catch(() => {});
           throw err;
         }
       } catch (err: any) {
@@ -78,11 +82,14 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
   server.tool(
     "get_active_queries",
     "Show currently running queries on the server (from sys.dm_exec_requests)",
-    {},
-    async () => {
+    {
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
+    },
+    async ({ server: srv }) => {
       try {
+        const { connection, serverName } = resolveServer(config, srv);
         const result = await executeQuery(
-          config.connection,
+          connection,
           `SELECT
             r.session_id,
             r.status,
@@ -106,7 +113,9 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
           CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) t
           WHERE r.session_id != @@SPID
             AND r.session_id > 50
-          ORDER BY r.total_elapsed_time DESC`
+          ORDER BY r.total_elapsed_time DESC`,
+          undefined,
+          serverName
         );
 
         return {
@@ -141,18 +150,20 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
         .string()
         .optional()
         .describe("Database name (uses connection default if omitted)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ table, schema, database }) => {
-      const db = database ?? config.connection.database;
+    async ({ table, schema, database, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
       const sch = schema ?? "dbo";
 
-      if (!isDatabaseAllowed(db, config.security)) {
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
       try {
         const result = await executeQuery(
-          config.connection,
+          connection,
           `USE ${escapeIdentifier(db)};
           SELECT
             s.name AS [schema],
@@ -173,7 +184,8 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
             AND s.name = @schema
             AND i.index_id <= 1
           GROUP BY s.name, t.name, p.rows, t.object_id`,
-          { table, schema: sch }
+          { table, schema: sch },
+          serverName
         );
 
         return {
@@ -208,18 +220,20 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
         .string()
         .optional()
         .describe("Database name (uses connection default if omitted)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ table, schema, database }) => {
-      const db = database ?? config.connection.database;
+    async ({ table, schema, database, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
       const sch = schema ?? "dbo";
 
-      if (!isDatabaseAllowed(db, config.security)) {
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
       try {
         const result = await executeQuery(
-          config.connection,
+          connection,
           `USE ${escapeIdentifier(db)};
           SELECT
             i.name AS [index_name],
@@ -245,7 +259,8 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
             AND s.name = @schema
             AND i.name IS NOT NULL
           ORDER BY ISNULL(ius.user_seeks, 0) + ISNULL(ius.user_scans, 0) DESC`,
-          { table, schema: sch }
+          { table, schema: sch },
+          serverName
         );
 
         return {
@@ -278,16 +293,18 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
         .string()
         .optional()
         .describe("Database name (uses connection default if omitted)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ database }) => {
-      const db = database ?? config.connection.database;
-      if (!isDatabaseAllowed(db, config.security)) {
+    async ({ database, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
       try {
         const result = await executeQuery(
-          config.connection,
+          connection,
           `SELECT TOP 20
             DB_NAME(mid.database_id) AS [database],
             OBJECT_SCHEMA_NAME(mid.object_id, mid.database_id) AS [schema],
@@ -314,7 +331,8 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
           JOIN sys.dm_db_missing_index_group_stats migs ON mig.index_group_handle = migs.group_handle
           WHERE mid.database_id = DB_ID(@database)
           ORDER BY improvement_measure DESC`,
-          { database: db }
+          { database: db },
+          serverName
         );
 
         return {
@@ -342,11 +360,14 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
   server.tool(
     "get_server_info",
     "Get SQL Server instance information: version, edition, OS, memory, CPU",
-    {},
-    async () => {
+    {
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
+    },
+    async ({ server: srv }) => {
       try {
+        const { connection, serverName } = resolveServer(config, srv);
         const result = await executeQuery(
-          config.connection,
+          connection,
           `SELECT
             SERVERPROPERTY('ProductVersion') AS [version],
             SERVERPROPERTY('ProductLevel') AS [level],
@@ -359,7 +380,9 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
             (SELECT COUNT(*) FROM sys.databases) AS [database_count],
             (SELECT cpu_count FROM sys.dm_os_sys_info) AS [cpu_count],
             (SELECT CAST(physical_memory_kb / 1024.0 AS DECIMAL(18,0)) FROM sys.dm_os_sys_info) AS [physical_memory_mb],
-            (SELECT sqlserver_start_time FROM sys.dm_os_sys_info) AS [start_time]`
+            (SELECT sqlserver_start_time FROM sys.dm_os_sys_info) AS [start_time]`,
+          undefined,
+          serverName
         );
 
         return {
@@ -385,17 +408,19 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
         .string()
         .optional()
         .describe("Database name (uses connection default if omitted)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ database }) => {
-      const db = database ?? config.connection.database;
-      if (!isDatabaseAllowed(db, config.security)) {
+    async ({ database, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
       try {
         const eDb = escapeIdentifier(db);
         const result = await executeQuery(
-          config.connection,
+          connection,
           `SELECT
             d.name AS [database],
             d.state_desc AS [status],
@@ -414,7 +439,8 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
             (SELECT COUNT(*) FROM ${eDb}.sys.procedures) AS [procedure_count]
           FROM sys.databases d
           WHERE d.name = @database`,
-          { database: db }
+          { database: db },
+          serverName
         );
 
         return {

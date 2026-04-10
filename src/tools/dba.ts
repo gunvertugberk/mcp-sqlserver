@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { AppConfig } from "../config.js";
+import { resolveServer, type AppConfig } from "../config.js";
 import { executeQuery } from "../database.js";
 import { isDatabaseAllowed, escapeIdentifier } from "../utils/security.js";
 import { formatResultSet } from "../utils/formatter.js";
@@ -12,12 +12,14 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
     "Get top server wait statistics — identifies performance bottlenecks (CPU, I/O, locks, etc.)",
     {
       top: z.number().optional().describe("Number of top wait types to return (default: 20)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ top }) => {
+    async ({ top, server: srv }) => {
+      const { connection, serverName } = resolveServer(config, srv);
       const n = top ?? 20;
       try {
         const result = await executeQuery(
-          config.connection,
+          connection,
           `SELECT TOP (${n})
             wait_type,
             waiting_tasks_count,
@@ -38,7 +40,9 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
             'WAIT_XTP_OFFLINE_CKPT_NEW_LOG','BROKER_EVENTHANDLER','PREEMPTIVE_OS_GETPROCADDRESS'
           )
             AND waiting_tasks_count > 0
-          ORDER BY wait_time_ms DESC`
+          ORDER BY wait_time_ms DESC`,
+          undefined,
+          serverName
         );
 
         return {
@@ -59,11 +63,14 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
   server.tool(
     "get_deadlocks",
     "Get recent deadlock events from the system_health Extended Events session",
-    {},
-    async () => {
+    {
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
+    },
+    async ({ server: srv }) => {
       try {
+        const { connection, serverName } = resolveServer(config, srv);
         const result = await executeQuery(
-          config.connection,
+          connection,
           `SELECT TOP 10
             xed.value('(@timestamp)[1]', 'datetime2') AS [deadlock_time],
             xed.query('.') AS [deadlock_graph]
@@ -75,7 +82,9 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
               AND st.target_name = 'ring_buffer'
           ) AS data
           CROSS APPLY target_data.nodes('RingBufferTarget/event[@name="xml_deadlock_report"]') AS xed(xed)
-          ORDER BY xed.value('(@timestamp)[1]', 'datetime2') DESC`
+          ORDER BY xed.value('(@timestamp)[1]', 'datetime2') DESC`,
+          undefined,
+          serverName
         );
 
         if (result.recordset.length === 0) {
@@ -97,11 +106,14 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
   server.tool(
     "get_blocking_chains",
     "Show current blocking chains — which sessions are blocking others",
-    {},
-    async () => {
+    {
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
+    },
+    async ({ server: srv }) => {
       try {
+        const { connection, serverName } = resolveServer(config, srv);
         const result = await executeQuery(
-          config.connection,
+          connection,
           `SELECT
             r.session_id AS [blocked_session],
             r.blocking_session_id AS [blocking_session],
@@ -125,7 +137,9 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
           FROM sys.dm_exec_requests r
           CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) t
           WHERE r.blocking_session_id > 0
-          ORDER BY r.wait_time DESC`
+          ORDER BY r.wait_time DESC`,
+          undefined,
+          serverName
         );
 
         return {
@@ -146,11 +160,14 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
   server.tool(
     "get_long_transactions",
     "Show long-running open transactions that may be holding locks",
-    {},
-    async () => {
+    {
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
+    },
+    async ({ server: srv }) => {
       try {
+        const { connection, serverName } = resolveServer(config, srv);
         const result = await executeQuery(
-          config.connection,
+          connection,
           `SELECT
             s.session_id,
             s.login_name,
@@ -183,7 +200,9 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
           JOIN sys.dm_exec_sessions s ON t.session_id = s.session_id
           WHERE at.transaction_begin_time < DATEADD(SECOND, -5, GETDATE())
             AND s.session_id != @@SPID
-          ORDER BY at.transaction_begin_time ASC`
+          ORDER BY at.transaction_begin_time ASC`,
+          undefined,
+          serverName
         );
 
         return {
@@ -210,18 +229,20 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
         .optional()
         .describe("Database name (uses connection default if omitted)"),
       top: z.number().optional().describe("Number of top tables to return (default: 20)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ database, top }) => {
-      const db = database ?? config.connection.database;
+    async ({ database, top, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
       const n = top ?? 20;
 
-      if (!isDatabaseAllowed(db, config.security)) {
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
       try {
         const result = await executeQuery(
-          config.connection,
+          connection,
           `USE ${escapeIdentifier(db)};
           SELECT TOP (${n})
             s.name AS [schema],
@@ -237,7 +258,9 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
           JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
           JOIN sys.allocation_units a ON p.partition_id = a.container_id
           GROUP BY s.name, t.name, p.rows
-          ORDER BY SUM(a.total_pages) DESC`
+          ORDER BY SUM(a.total_pages) DESC`,
+          undefined,
+          serverName
         );
 
         return {
@@ -270,20 +293,23 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
         .enum(["rebuild", "reorganize"])
         .optional()
         .describe("Operation mode (default: rebuild)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ table, index, schema, database, mode }) => {
-      if (!config.security.allowDDL) {
+    async ({ table, index, schema, database, mode, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+
+      if (!security.allowDDL) {
         return {
           content: [{ type: "text" as const, text: "Error: Index rebuild/reorganize requires admin security mode." }],
           isError: true,
         };
       }
 
-      const db = database ?? config.connection.database;
+      const db = database ?? connection.database;
       const sch = schema ?? "dbo";
       const op = mode ?? "rebuild";
 
-      if (!isDatabaseAllowed(db, config.security)) {
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
@@ -294,7 +320,7 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
           ? `USE ${escapeIdentifier(db)}; ALTER INDEX ${eIndex} ON ${eTable} REBUILD`
           : `USE ${escapeIdentifier(db)}; ALTER INDEX ${eIndex} ON ${eTable} REORGANIZE`;
 
-        await executeQuery(config.connection, stmt);
+        await executeQuery(connection, stmt, undefined, serverName);
 
         return {
           content: [{
@@ -318,14 +344,20 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
         .optional()
         .describe("Database name (uses connection default if omitted)"),
       top: z.number().optional().describe("Number of recent backups to show (default: 10)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ database, top }) => {
-      const db = database ?? config.connection.database;
+    async ({ database, top, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
       const n = top ?? 10;
+
+      if (!isDatabaseAllowed(db, security)) {
+        return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
+      }
 
       try {
         const result = await executeQuery(
-          config.connection,
+          connection,
           `SELECT TOP (${n})
             bs.database_name AS [database],
             CASE bs.type
@@ -346,7 +378,8 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
           JOIN msdb.dbo.backupmediafamily bmf ON bs.media_set_id = bmf.media_set_id
           WHERE bs.database_name = @database
           ORDER BY bs.backup_finish_date DESC`,
-          { database: db }
+          { database: db },
+          serverName
         );
 
         return {
@@ -377,13 +410,15 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
         .optional()
         .describe("Sort metric (default: cpu)"),
       top: z.number().optional().describe("Number of top queries (default: 10)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ database, sort_by, top }) => {
-      const db = database ?? config.connection.database;
+    async ({ database, sort_by, top, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
       const n = top ?? 10;
       const metric = sort_by ?? "cpu";
 
-      if (!isDatabaseAllowed(db, config.security)) {
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
@@ -397,7 +432,7 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
 
       try {
         const result = await executeQuery(
-          config.connection,
+          connection,
           `USE ${escapeIdentifier(db)};
           SELECT TOP (${n})
             q.query_id,
@@ -417,7 +452,9 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
           JOIN sys.query_store_runtime_stats rs ON p.plan_id = rs.plan_id
           JOIN sys.query_store_runtime_stats_interval rsi ON rs.runtime_stats_interval_id = rsi.runtime_stats_interval_id
           WHERE rsi.start_time > DATEADD(DAY, -7, GETUTCDATE())
-          ORDER BY ${orderCol} DESC`
+          ORDER BY ${orderCol} DESC`,
+          undefined,
+          serverName
         );
 
         if (result.recordset.length === 0) {
@@ -446,20 +483,22 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
         .optional()
         .describe("Database name (uses connection default if omitted)"),
       count: z.number().optional().describe("Number of rows to generate (default: 10, max: 100)"),
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ table, schema, database, count }) => {
-      const db = database ?? config.connection.database;
+    async ({ table, schema, database, count, server: srv }) => {
+      const { connection, security, serverName } = resolveServer(config, srv);
+      const db = database ?? connection.database;
       const sch = schema ?? "dbo";
       const n = Math.min(count ?? 10, 100);
 
-      if (!isDatabaseAllowed(db, config.security)) {
+      if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
       }
 
       try {
         const eDb = escapeIdentifier(db);
         const colResult = await executeQuery(
-          config.connection,
+          connection,
           `SELECT c.name, tp.name AS type, c.max_length, c.precision, c.scale,
                   c.is_nullable, c.is_identity, c.is_computed
            FROM ${eDb}.sys.columns c
@@ -469,7 +508,8 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
            WHERE o.name = @table AND s.name = @schema
              AND c.is_identity = 0 AND c.is_computed = 0
            ORDER BY c.column_id`,
-          { table, schema: sch }
+          { table, schema: sch },
+          serverName
         );
 
         if (colResult.recordset.length === 0) {
@@ -503,12 +543,15 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
   server.tool(
     "health_check",
     "Check SQL Server connection health and basic responsiveness",
-    {},
-    async () => {
+    {
+      server: z.string().optional().describe("Target server name (uses default if omitted)"),
+    },
+    async ({ server: srv }) => {
       try {
+        const { connection, serverName } = resolveServer(config, srv);
         const start = Date.now();
         const result = await executeQuery(
-          config.connection,
+          connection,
           `SELECT
             @@VERSION AS [version],
             GETDATE() AS [server_time],
@@ -516,13 +559,16 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
             SUSER_NAME() AS [login],
             (SELECT COUNT(*) FROM sys.dm_exec_sessions WHERE is_user_process = 1) AS [active_sessions],
             (SELECT cntr_value FROM sys.dm_os_performance_counters
-             WHERE counter_name = 'Batch Requests/sec') AS [batch_requests_sec]`
+             WHERE counter_name = 'Batch Requests/sec') AS [batch_requests_sec]`,
+          undefined,
+          serverName
         );
         const latency = Date.now() - start;
 
         const row = result.recordset[0];
         const lines = [
           "## Health Check",
+          `- **Server**: ${serverName}`,
           `- **Status**: OK`,
           `- **Latency**: ${latency}ms`,
           `- **Server Time**: ${row.server_time}`,
