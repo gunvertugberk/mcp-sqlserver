@@ -78,9 +78,18 @@ Each file below is scoped to one concern and stays under ~200 lines. Open the re
 
 ## When the user asks you to do something
 
-- **Adding a tool** → `tool-authoring.md` + `security.md` + the relevant `tools/*.ts` file.
+- **Adding a tool** → `tool-authoring.md` + `security.md` + the relevant `tools/*.ts` file. Prefer dispatching the `mcp-tool-creator` agent.
 - **Changing auth / connection** → `database.md` + `config-and-servers.md`.
 - **Changing security rules** → `security.md` + `config-and-servers.md`.
 - **Refactoring module structure** → `architecture.md` first.
 - **Release / version bump** → `workflow.md`.
 - **Anything touching SQL** → `security.md` is non-negotiable.
+- **Reviewing changes before commit** → run `mssql-security-reviewer` first, then `mssql-code-reviewer`.
+
+## Project-specific agents (`.claude/agents/`)
+
+- **`mcp-tool-creator`** — scaffolds a new MCP tool end-to-end (register block, security gates, README + CHANGELOG updates, build verify). Use when the user says "add a tool" or similar.
+- **`mssql-security-reviewer`** — narrow, high-precision audit for SQL injection and security perimeter violations (missing `escapeIdentifier`, unparameterized values, skipped `validateQuery`, missing gates). Zero-false-positive bias. Does not modify files.
+- **`mssql-code-reviewer`** — broad code review for logic, project conventions, missing README/CHANGELOG updates, dead code, naming. Explicitly defers security to `mssql-security-reviewer`. Does not modify files.
+
+Pre-commit review flow: `mssql-security-reviewer` → `mssql-code-reviewer` → fix findings → commit.
