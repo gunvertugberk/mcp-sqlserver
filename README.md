@@ -2,7 +2,7 @@
 
 A powerful [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server for **Microsoft SQL Server**. Connects AI assistants (Claude, Gemini, Kiro, OpenAI, Copilot, Cursor) directly to your SQL Server databases with enterprise-grade security controls.
 
-**38 tools** across 7 categories: schema discovery, query execution, DDL, stored procedures, performance/DBA diagnostics, developer utilities, and server management.
+**39 tools** across 7 categories: schema discovery, query execution, DDL, stored procedures, performance/DBA diagnostics, developer utilities, and server management.
 
 [![npm version](https://img.shields.io/npm/v/@tugberkgunver/mcp-sqlserver)](https://www.npmjs.com/package/@tugberkgunver/mcp-sqlserver)
 [![GitHub release](https://img.shields.io/github/v/release/gunvertugberk/mcp-sqlserver)](https://github.com/gunvertugberk/mcp-sqlserver/releases)

@@ -4,7 +4,7 @@ This file tells Claude (and any AI assistant using Claude Code / MCP) how to wor
 
 ## What this project is
 
-`@tugberkgunver/mcp-sqlserver` is a **Model Context Protocol (MCP) server for Microsoft SQL Server**. It exposes **38 tools** across 7 categories (schema discovery, query, DDL, stored procedures, performance, DBA diagnostics, developer utilities, server management) so AI assistants can talk to SQL Server with enterprise-grade security controls.
+`@tugberkgunver/mcp-sqlserver` is a **Model Context Protocol (MCP) server for Microsoft SQL Server**. It exposes **39 tools** across 7 categories (schema discovery, query, DDL, stored procedures, performance, DBA diagnostics, developer utilities, server management) so AI assistants can talk to SQL Server with enterprise-grade security controls.
 
 - **Package**: `@tugberkgunver/mcp-sqlserver` on npm
 - **Repo**: `gunvertugberk/mcp-sqlserver` on GitHub
