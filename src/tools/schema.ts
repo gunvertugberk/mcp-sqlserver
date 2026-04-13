@@ -14,28 +14,32 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
       server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
     async ({ server: srv }) => {
-      const { connection, security, serverName } = resolveServer(config, srv);
-      const result = await executeQuery(
-        connection,
-        `SELECT name, database_id, state_desc, recovery_model_desc, compatibility_level
-         FROM sys.databases
-         ORDER BY name`,
-        undefined,
-        serverName
-      );
+      try {
+        const { connection, security, serverName } = resolveServer(config, srv);
+        const result = await executeQuery(
+          connection,
+          `SELECT name, database_id, state_desc, recovery_model_desc, compatibility_level
+           FROM sys.databases
+           ORDER BY name`,
+          undefined,
+          serverName
+        );
 
-      const filtered = result.recordset.filter((r: any) =>
-        isDatabaseAllowed(r.name, security)
-      );
+        const filtered = result.recordset.filter((r: any) =>
+          isDatabaseAllowed(r.name, security)
+        );
 
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: formatResultSet({ ...result, recordset: filtered } as any),
-          },
-        ],
-      };
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: formatResultSet({ ...result, recordset: filtered } as any),
+            },
+          ],
+        };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
     }
   );
 
@@ -51,35 +55,39 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
       server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
     async ({ database, server: srv }) => {
-      const { connection, security, serverName } = resolveServer(config, srv);
-      const db = database ?? connection.database;
-      if (!isDatabaseAllowed(db, security)) {
-        return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
+      try {
+        const { connection, security, serverName } = resolveServer(config, srv);
+        const db = database ?? connection.database;
+        if (!isDatabaseAllowed(db, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
+        }
+
+        const eDb = escapeIdentifier(db);
+        const result = await executeQuery(
+          connection,
+          `SELECT s.name AS schema_name, s.schema_id, p.name AS owner
+           FROM ${eDb}.sys.schemas s
+           JOIN ${eDb}.sys.database_principals p ON s.principal_id = p.principal_id
+           ORDER BY s.name`,
+          undefined,
+          serverName
+        );
+
+        const filtered = result.recordset.filter((r: any) =>
+          isSchemaAllowed(r.schema_name, security)
+        );
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: formatResultSet({ ...result, recordset: filtered } as any),
+            },
+          ],
+        };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
       }
-
-      const eDb = escapeIdentifier(db);
-      const result = await executeQuery(
-        connection,
-        `SELECT s.name AS schema_name, s.schema_id, p.name AS owner
-         FROM ${eDb}.sys.schemas s
-         JOIN ${eDb}.sys.database_principals p ON s.principal_id = p.principal_id
-         ORDER BY s.name`,
-        undefined,
-        serverName
-      );
-
-      const filtered = result.recordset.filter((r: any) =>
-        isSchemaAllowed(r.schema_name, security)
-      );
-
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: formatResultSet({ ...result, recordset: filtered } as any),
-          },
-        ],
-      };
     }
   );
 
@@ -96,50 +104,54 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
       server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
     async ({ database, schema, server: srv }) => {
-      const { connection, security, serverName } = resolveServer(config, srv);
-      const db = database ?? connection.database;
-      if (!isDatabaseAllowed(db, security)) {
-        return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
+      try {
+        const { connection, security, serverName } = resolveServer(config, srv);
+        const db = database ?? connection.database;
+        if (!isDatabaseAllowed(db, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
+        }
+
+        const eDb = escapeIdentifier(db);
+        let query = `
+          SELECT
+            s.name AS [schema],
+            t.name AS [table],
+            p.rows AS [row_count],
+            CAST(ROUND(SUM(a.total_pages) * 8.0 / 1024, 2) AS DECIMAL(18,2)) AS [size_mb]
+          FROM ${eDb}.sys.tables t
+          JOIN ${eDb}.sys.schemas s ON t.schema_id = s.schema_id
+          JOIN ${eDb}.sys.indexes i ON t.object_id = i.object_id
+          JOIN ${eDb}.sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
+          JOIN ${eDb}.sys.allocation_units a ON p.partition_id = a.container_id
+          WHERE i.index_id <= 1`;
+
+        const params: Record<string, unknown> = {};
+        if (schema) {
+          query += ` AND s.name = @schema`;
+          params.schema = schema;
+        }
+
+        query += `
+          GROUP BY s.name, t.name, p.rows
+          ORDER BY s.name, t.name`;
+
+        const result = await executeQuery(connection, query, params, serverName);
+
+        const filtered = result.recordset.filter((r: any) =>
+          isSchemaAllowed(r.schema, security)
+        );
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: formatResultSet({ ...result, recordset: filtered } as any),
+            },
+          ],
+        };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
       }
-
-      const eDb = escapeIdentifier(db);
-      let query = `
-        SELECT
-          s.name AS [schema],
-          t.name AS [table],
-          p.rows AS [row_count],
-          CAST(ROUND(SUM(a.total_pages) * 8.0 / 1024, 2) AS DECIMAL(18,2)) AS [size_mb]
-        FROM ${eDb}.sys.tables t
-        JOIN ${eDb}.sys.schemas s ON t.schema_id = s.schema_id
-        JOIN ${eDb}.sys.indexes i ON t.object_id = i.object_id
-        JOIN ${eDb}.sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
-        JOIN ${eDb}.sys.allocation_units a ON p.partition_id = a.container_id
-        WHERE i.index_id <= 1`;
-
-      const params: Record<string, unknown> = {};
-      if (schema) {
-        query += ` AND s.name = @schema`;
-        params.schema = schema;
-      }
-
-      query += `
-        GROUP BY s.name, t.name, p.rows
-        ORDER BY s.name, t.name`;
-
-      const result = await executeQuery(connection, query, params, serverName);
-
-      const filtered = result.recordset.filter((r: any) =>
-        isSchemaAllowed(r.schema, security)
-      );
-
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: formatResultSet({ ...result, recordset: filtered } as any),
-          },
-        ],
-      };
     }
   );
 
@@ -156,45 +168,49 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
       server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
     async ({ database, schema, server: srv }) => {
-      const { connection, security, serverName } = resolveServer(config, srv);
-      const db = database ?? connection.database;
-      if (!isDatabaseAllowed(db, security)) {
-        return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
+      try {
+        const { connection, security, serverName } = resolveServer(config, srv);
+        const db = database ?? connection.database;
+        if (!isDatabaseAllowed(db, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
+        }
+
+        const eDb = escapeIdentifier(db);
+        let query = `
+          SELECT
+            s.name AS [schema],
+            v.name AS [view],
+            v.create_date,
+            v.modify_date
+          FROM ${eDb}.sys.views v
+          JOIN ${eDb}.sys.schemas s ON v.schema_id = s.schema_id
+          WHERE 1=1`;
+
+        const params: Record<string, unknown> = {};
+        if (schema) {
+          query += ` AND s.name = @schema`;
+          params.schema = schema;
+        }
+
+        query += ` ORDER BY s.name, v.name`;
+
+        const result = await executeQuery(connection, query, params, serverName);
+
+        const filtered = result.recordset.filter((r: any) =>
+          isSchemaAllowed(r.schema, security)
+        );
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: formatResultSet({ ...result, recordset: filtered } as any),
+            },
+          ],
+        };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
       }
-
-      const eDb = escapeIdentifier(db);
-      let query = `
-        SELECT
-          s.name AS [schema],
-          v.name AS [view],
-          v.create_date,
-          v.modify_date
-        FROM ${eDb}.sys.views v
-        JOIN ${eDb}.sys.schemas s ON v.schema_id = s.schema_id
-        WHERE 1=1`;
-
-      const params: Record<string, unknown> = {};
-      if (schema) {
-        query += ` AND s.name = @schema`;
-        params.schema = schema;
-      }
-
-      query += ` ORDER BY s.name, v.name`;
-
-      const result = await executeQuery(connection, query, params, serverName);
-
-      const filtered = result.recordset.filter((r: any) =>
-        isSchemaAllowed(r.schema, security)
-      );
-
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: formatResultSet({ ...result, recordset: filtered } as any),
-          },
-        ],
-      };
     }
   );
 
@@ -212,58 +228,62 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
       server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
     async ({ table, schema, database, server: srv }) => {
-      const { connection, security, serverName } = resolveServer(config, srv);
-      const db = database ?? connection.database;
-      const sch = schema ?? "dbo";
+      try {
+        const { connection, security, serverName } = resolveServer(config, srv);
+        const db = database ?? connection.database;
+        const sch = schema ?? "dbo";
 
-      if (!isDatabaseAllowed(db, security)) {
-        return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
-      }
-      if (!isSchemaAllowed(sch, security)) {
-        return { content: [{ type: "text" as const, text: `Access denied to schema: ${sch}` }] };
-      }
+        if (!isDatabaseAllowed(db, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
+        }
+        if (!isSchemaAllowed(sch, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to schema: ${sch}` }] };
+        }
 
-      const eDb = escapeIdentifier(db);
-      const result = await executeQuery(
-        connection,
-        `SELECT
-          c.name AS [column],
-          tp.name AS [type],
-          c.max_length,
-          c.precision,
-          c.scale,
-          c.is_nullable,
-          c.is_identity,
-          c.is_computed,
-          dc.definition AS [default],
-          cc.definition AS [computed_definition]
-        FROM ${eDb}.sys.columns c
-        JOIN ${eDb}.sys.types tp ON c.user_type_id = tp.user_type_id
-        JOIN ${eDb}.sys.objects o ON c.object_id = o.object_id
-        JOIN ${eDb}.sys.schemas s ON o.schema_id = s.schema_id
-        LEFT JOIN ${eDb}.sys.default_constraints dc ON c.default_object_id = dc.object_id
-        LEFT JOIN ${eDb}.sys.computed_columns cc ON c.object_id = cc.object_id AND c.column_id = cc.column_id
-        WHERE o.name = @table
-          AND s.name = @schema
-        ORDER BY c.column_id`,
-        { table, schema: sch },
-        serverName
-      );
+        const eDb = escapeIdentifier(db);
+        const result = await executeQuery(
+          connection,
+          `SELECT
+            c.name AS [column],
+            tp.name AS [type],
+            c.max_length,
+            c.precision,
+            c.scale,
+            c.is_nullable,
+            c.is_identity,
+            c.is_computed,
+            dc.definition AS [default],
+            cc.definition AS [computed_definition]
+          FROM ${eDb}.sys.columns c
+          JOIN ${eDb}.sys.types tp ON c.user_type_id = tp.user_type_id
+          JOIN ${eDb}.sys.objects o ON c.object_id = o.object_id
+          JOIN ${eDb}.sys.schemas s ON o.schema_id = s.schema_id
+          LEFT JOIN ${eDb}.sys.default_constraints dc ON c.default_object_id = dc.object_id
+          LEFT JOIN ${eDb}.sys.computed_columns cc ON c.object_id = cc.object_id AND c.column_id = cc.column_id
+          WHERE o.name = @table
+            AND s.name = @schema
+          ORDER BY c.column_id`,
+          { table, schema: sch },
+          serverName
+        );
 
-      if (result.recordset.length === 0) {
+        if (result.recordset.length === 0) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Table or view '${sch}.${table}' not found in database '${db}'.`,
+              },
+            ],
+          };
+        }
+
         return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Table or view '${sch}.${table}' not found in database '${db}'.`,
-            },
-          ],
+          content: [{ type: "text" as const, text: formatResultSet(result) }],
         };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
       }
-
-      return {
-        content: [{ type: "text" as const, text: formatResultSet(result) }],
-      };
     }
   );
 
@@ -281,19 +301,23 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
       server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
     async ({ table, schema, database, server: srv }) => {
-      const { connection, security, serverName } = resolveServer(config, srv);
-      const db = database ?? connection.database;
-      const sch = schema ?? "dbo";
+      try {
+        const { connection, security, serverName } = resolveServer(config, srv);
+        const db = database ?? connection.database;
+        const sch = schema ?? "dbo";
 
-      if (!isDatabaseAllowed(db, security)) {
-        return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
-      }
+        if (!isDatabaseAllowed(db, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
+        }
+        if (!isSchemaAllowed(sch, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to schema: ${sch}` }] };
+        }
 
-      const eDb = escapeIdentifier(db);
-      const result = await executeQuery(
-        connection,
-        `SELECT
-          fk.name AS [fk_name],
+        const eDb = escapeIdentifier(db);
+        const result = await executeQuery(
+          connection,
+          `SELECT
+            fk.name AS [fk_name],
           ps.name AS [parent_schema],
           pt.name AS [parent_table],
           pc.name AS [parent_column],
@@ -317,16 +341,19 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         serverName
       );
 
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: result.recordset.length === 0
-              ? `No foreign keys found for '${sch}.${table}'.`
-              : formatResultSet(result),
-          },
-        ],
-      };
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: result.recordset.length === 0
+                ? `No foreign keys found for '${sch}.${table}'.`
+                : formatResultSet(result),
+            },
+          ],
+        };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
     }
   );
 
@@ -344,19 +371,23 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
       server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
     async ({ table, schema, database, server: srv }) => {
-      const { connection, security, serverName } = resolveServer(config, srv);
-      const db = database ?? connection.database;
-      const sch = schema ?? "dbo";
+      try {
+        const { connection, security, serverName } = resolveServer(config, srv);
+        const db = database ?? connection.database;
+        const sch = schema ?? "dbo";
 
-      if (!isDatabaseAllowed(db, security)) {
-        return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
-      }
+        if (!isDatabaseAllowed(db, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
+        }
+        if (!isSchemaAllowed(sch, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to schema: ${sch}` }] };
+        }
 
-      const eDb = escapeIdentifier(db);
-      const result = await executeQuery(
-        connection,
-        `SELECT
-          i.name AS [index_name],
+        const eDb = escapeIdentifier(db);
+        const result = await executeQuery(
+          connection,
+          `SELECT
+            i.name AS [index_name],
           i.type_desc AS [type],
           i.is_unique,
           i.is_primary_key,
@@ -376,16 +407,19 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         serverName
       );
 
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: result.recordset.length === 0
-              ? `No indexes found for '${sch}.${table}'.`
-              : formatResultSet(result),
-          },
-        ],
-      };
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: result.recordset.length === 0
+                ? `No indexes found for '${sch}.${table}'.`
+                : formatResultSet(result),
+            },
+          ],
+        };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
     }
   );
 
@@ -403,19 +437,23 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
       server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
     async ({ table, schema, database, server: srv }) => {
-      const { connection, security, serverName } = resolveServer(config, srv);
-      const db = database ?? connection.database;
-      const sch = schema ?? "dbo";
+      try {
+        const { connection, security, serverName } = resolveServer(config, srv);
+        const db = database ?? connection.database;
+        const sch = schema ?? "dbo";
 
-      if (!isDatabaseAllowed(db, security)) {
-        return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
-      }
+        if (!isDatabaseAllowed(db, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
+        }
+        if (!isSchemaAllowed(sch, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to schema: ${sch}` }] };
+        }
 
-      const eDb = escapeIdentifier(db);
-      const result = await executeQuery(
-        connection,
-        `SELECT
-          con.name AS [constraint_name],
+        const eDb = escapeIdentifier(db);
+        const result = await executeQuery(
+          connection,
+          `SELECT
+            con.name AS [constraint_name],
           con.type_desc AS [type],
           col.name AS [column],
           chk.definition AS [check_definition],
@@ -435,16 +473,19 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         serverName
       );
 
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: result.recordset.length === 0
-              ? `No constraints found for '${sch}.${table}'.`
-              : formatResultSet(result),
-          },
-        ],
-      };
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: result.recordset.length === 0
+                ? `No constraints found for '${sch}.${table}'.`
+                : formatResultSet(result),
+            },
+          ],
+        };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
     }
   );
 
@@ -462,19 +503,23 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
       server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
     async ({ table, schema, database, server: srv }) => {
-      const { connection, security, serverName } = resolveServer(config, srv);
-      const db = database ?? connection.database;
-      const sch = schema ?? "dbo";
+      try {
+        const { connection, security, serverName } = resolveServer(config, srv);
+        const db = database ?? connection.database;
+        const sch = schema ?? "dbo";
 
-      if (!isDatabaseAllowed(db, security)) {
-        return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
-      }
+        if (!isDatabaseAllowed(db, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
+        }
+        if (!isSchemaAllowed(sch, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to schema: ${sch}` }] };
+        }
 
-      const eDb = escapeIdentifier(db);
-      const result = await executeQuery(
-        connection,
-        `SELECT
-          tr.name AS [trigger_name],
+        const eDb = escapeIdentifier(db);
+        const result = await executeQuery(
+          connection,
+          `SELECT
+            tr.name AS [trigger_name],
           tr.is_disabled,
           tr.is_instead_of_trigger,
           te.type_desc AS [event_type],
@@ -490,16 +535,19 @@ export function registerSchemaTools(server: McpServer, config: AppConfig): void 
         serverName
       );
 
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: result.recordset.length === 0
-              ? `No triggers found for '${sch}.${table}'.`
-              : formatResultSet(result),
-          },
-        ],
-      };
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: result.recordset.length === 0
+                ? `No triggers found for '${sch}.${table}'.`
+                : formatResultSet(result),
+            },
+          ],
+        };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
     }
   );
 }

@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { resolveServer, type AppConfig } from "../config.js";
 import { executeQuery } from "../database.js";
-import { isDatabaseAllowed, escapeIdentifier } from "../utils/security.js";
+import { isDatabaseAllowed, escapeIdentifier, validateQuery } from "../utils/security.js";
 import { formatResultSet } from "../utils/formatter.js";
 
 export function registerPerformanceTools(server: McpServer, config: AppConfig): void {
@@ -20,8 +20,14 @@ export function registerPerformanceTools(server: McpServer, config: AppConfig): 
     },
     async ({ sql: sqlQuery, database, server: srv }) => {
       try {
-        const { connection, serverName } = resolveServer(config, srv);
+        const { connection, security, serverName } = resolveServer(config, srv);
         const db = database ?? connection.database;
+
+        if (!isDatabaseAllowed(db, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
+        }
+
+        validateQuery(sqlQuery, security);
 
         // Switch database context first (separate batch)
         if (database) {

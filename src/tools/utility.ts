@@ -2,8 +2,8 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { resolveServer, type AppConfig } from "../config.js";
 import { executeQuery } from "../database.js";
-import { isDatabaseAllowed, escapeIdentifier } from "../utils/security.js";
-import { formatResultSet } from "../utils/formatter.js";
+import { isDatabaseAllowed, escapeIdentifier, ensureRowLimit, validateQuery } from "../utils/security.js";
+import { formatResultSet, formatResultSetJson } from "../utils/formatter.js";
 
 export function registerUtilityTools(server: McpServer, config: AppConfig): void {
   // ─── compare_schemas ───
@@ -296,7 +296,7 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
       const { connection, security, serverName } = resolveServer(config, srv);
       const db = database ?? connection.database;
       const sch = schema ?? "dbo";
-      const limit = Math.min(top ?? 100, security.maxRowCount);
+      const limit = Math.max(1, Math.floor(Math.min(top ?? 100, security.maxRowCount)));
 
       if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
@@ -491,7 +491,7 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
       const { connection, security, serverName } = resolveServer(config, srv);
       const db = database ?? connection.database;
       const sch = schema ?? "dbo";
-      const n = Math.min(count ?? 10, 100, security.maxRowCount);
+      const n = Math.max(1, Math.floor(Math.min(count ?? 10, 100, security.maxRowCount)));
 
       if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
@@ -538,6 +538,10 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
       try {
         const { connection, security, serverName } = resolveServer(config, srv);
 
+        if (database && !isDatabaseAllowed(database, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to database: ${database}` }] };
+        }
+
         const trimmed = sqlQuery.trim();
         if (!/^\s*(SELECT|WITH)\s/i.test(trimmed)) {
           return {
@@ -546,8 +550,7 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
           };
         }
 
-        const { ensureRowLimit, validateQuery: validate } = await import("../utils/security.js");
-        validate(sqlQuery, security);
+        validateQuery(sqlQuery, security);
         const limited = ensureRowLimit(sqlQuery, security.maxRowCount);
 
         const query = database
@@ -561,7 +564,6 @@ export function registerUtilityTools(server: McpServer, config: AppConfig): void
         }
 
         if (format === "json") {
-          const { formatResultSetJson } = await import("../utils/formatter.js");
           return {
             content: [{ type: "text" as const, text: "```json\n" + JSON.stringify(formatResultSetJson(result), null, 2) + "\n```" }],
           };
@@ -669,9 +671,9 @@ function generateCSharp(table: string, cols: any[]): string {
 }
 
 function generateCreateTable(schema: string, table: string, cols: any[]): string {
-  const lines = [`CREATE TABLE [${schema}].[${table}] (`];
+  const lines = [`CREATE TABLE ${escapeIdentifier(schema)}.${escapeIdentifier(table)} (`];
   const colDefs = cols.map((col) => {
-    let def = `  [${col.column}] ${col.type}`;
+    let def = `  ${escapeIdentifier(col.column)} ${col.type}`;
     if (["varchar", "nvarchar", "char", "nchar", "binary", "varbinary"].includes(col.type.toLowerCase())) {
       def += col.max_length === -1 ? "(MAX)" : `(${col.type.toLowerCase().startsWith("n") ? col.max_length / 2 : col.max_length})`;
     } else if (["decimal", "numeric"].includes(col.type.toLowerCase())) {

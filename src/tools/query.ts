@@ -7,6 +7,7 @@ import {
   ensureRowLimit,
   applyMasking,
   escapeIdentifier,
+  isDatabaseAllowed,
 } from "../utils/security.js";
 import { formatResultSet } from "../utils/formatter.js";
 
@@ -39,6 +40,10 @@ export function registerQueryTools(server: McpServer, config: AppConfig): void {
             ],
             isError: true,
           };
+        }
+
+        if (database && !isDatabaseAllowed(database, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to database: ${database}` }] };
         }
 
         validateQuery(sqlQuery, security);
@@ -92,8 +97,6 @@ export function registerQueryTools(server: McpServer, config: AppConfig): void {
       try {
         const { connection, security, serverName } = resolveServer(config, srv);
 
-        validateQuery(sqlQuery, security);
-
         // Verify it's actually a mutation
         const trimmed = sqlQuery.trim();
         if (!/^\s*(INSERT|UPDATE|DELETE|MERGE)\s/i.test(trimmed)) {
@@ -107,6 +110,12 @@ export function registerQueryTools(server: McpServer, config: AppConfig): void {
             isError: true,
           };
         }
+
+        if (database && !isDatabaseAllowed(database, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to database: ${database}` }] };
+        }
+
+        validateQuery(sqlQuery, security);
 
         const query = database
           ? `USE ${escapeIdentifier(database)};\n${sqlQuery}`

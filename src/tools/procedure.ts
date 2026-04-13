@@ -19,47 +19,51 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
       server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
     async ({ database, schema, server: srv }) => {
-      const { connection, security, serverName } = resolveServer(config, srv);
-      const db = database ?? connection.database;
-      if (!isDatabaseAllowed(db, security)) {
-        return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
+      try {
+        const { connection, security, serverName } = resolveServer(config, srv);
+        const db = database ?? connection.database;
+        if (!isDatabaseAllowed(db, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
+        }
+
+        const eDb = escapeIdentifier(db);
+        let query = `
+          SELECT
+            s.name AS [schema],
+            p.name AS [procedure],
+            p.create_date,
+            p.modify_date
+          FROM ${eDb}.sys.procedures p
+          JOIN ${eDb}.sys.schemas s ON p.schema_id = s.schema_id
+          WHERE 1=1`;
+
+        const params: Record<string, unknown> = {};
+        if (schema) {
+          query += ` AND s.name = @schema`;
+          params.schema = schema;
+        }
+
+        query += ` ORDER BY s.name, p.name`;
+
+        const result = await executeQuery(connection, query, params, serverName);
+
+        const filtered = result.recordset.filter((r: any) =>
+          isSchemaAllowed(r.schema, security)
+        );
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: filtered.length === 0
+                ? "No stored procedures found."
+                : formatResultSet({ ...result, recordset: filtered } as any),
+            },
+          ],
+        };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
       }
-
-      const eDb = escapeIdentifier(db);
-      let query = `
-        SELECT
-          s.name AS [schema],
-          p.name AS [procedure],
-          p.create_date,
-          p.modify_date
-        FROM ${eDb}.sys.procedures p
-        JOIN ${eDb}.sys.schemas s ON p.schema_id = s.schema_id
-        WHERE 1=1`;
-
-      const params: Record<string, unknown> = {};
-      if (schema) {
-        query += ` AND s.name = @schema`;
-        params.schema = schema;
-      }
-
-      query += ` ORDER BY s.name, p.name`;
-
-      const result = await executeQuery(connection, query, params, serverName);
-
-      const filtered = result.recordset.filter((r: any) =>
-        isSchemaAllowed(r.schema, security)
-      );
-
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: filtered.length === 0
-              ? "No stored procedures found."
-              : formatResultSet({ ...result, recordset: filtered } as any),
-          },
-        ],
-      };
     }
   );
 
@@ -77,18 +81,22 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
       server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
     async ({ procedure, schema, database, server: srv }) => {
-      const { connection, security, serverName } = resolveServer(config, srv);
-      const db = database ?? connection.database;
-      const sch = schema ?? "dbo";
+      try {
+        const { connection, security, serverName } = resolveServer(config, srv);
+        const db = database ?? connection.database;
+        const sch = schema ?? "dbo";
 
-      if (!isDatabaseAllowed(db, security)) {
-        return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
-      }
+        if (!isDatabaseAllowed(db, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
+        }
+        if (!isSchemaAllowed(sch, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to schema: ${sch}` }] };
+        }
 
-      const eDb = escapeIdentifier(db);
+        const eDb = escapeIdentifier(db);
 
-      // Get parameters
-      const paramQuery = `
+        // Get parameters
+        const paramQuery = `
         SELECT
           par.name AS [parameter],
           tp.name AS [type],
@@ -106,13 +114,13 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
           AND s.name = @schema
         ORDER BY par.parameter_id`;
 
-      // Get source — use escaped identifiers for OBJECT_ID
+      // Get source — use parameterized OBJECT_ID
       const qualifiedName = `${eDb}.${escapeIdentifier(sch)}.${escapeIdentifier(procedure)}`;
-      const srcQuery = `SELECT OBJECT_DEFINITION(OBJECT_ID('${qualifiedName.replace(/'/g, "''")}')) AS [definition]`;
+      const srcQuery = `SELECT OBJECT_DEFINITION(OBJECT_ID(@qualifiedName)) AS [definition]`;
 
       const [paramResult, srcResult] = await Promise.all([
         executeQuery(connection, paramQuery, { procedure, schema: sch }, serverName),
-        executeQuery(connection, srcQuery, undefined, serverName),
+        executeQuery(connection, srcQuery, { qualifiedName }, serverName),
       ]);
 
       const parts: string[] = [];
@@ -128,9 +136,12 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
         parts.push("\n## Source Code\n```sql\n" + definition + "\n```");
       }
 
-      return {
-        content: [{ type: "text" as const, text: parts.join("\n") }],
-      };
+        return {
+          content: [{ type: "text" as const, text: parts.join("\n") }],
+        };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
     }
   );
 
@@ -139,7 +150,8 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
     "execute_procedure",
     "Execute a stored procedure with parameters. Requires readwrite or admin security mode.",
     {
-      procedure: z.string().describe("Stored procedure name (e.g. 'dbo.MyProc')"),
+      procedure: z.string().describe("Stored procedure name (without schema prefix)"),
+      schema: z.string().optional().describe("Schema name (default: dbo)"),
       parameters: z
         .record(z.unknown())
         .optional()
@@ -150,7 +162,7 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
         .describe("Database name (uses connection default if omitted)"),
       server: z.string().optional().describe("Target server name (uses default if omitted)"),
     },
-    async ({ procedure, parameters, database, server: srv }) => {
+    async ({ procedure, schema, parameters, database, server: srv }) => {
       try {
         const { connection, security, serverName } = resolveServer(config, srv);
 
@@ -167,9 +179,16 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
         }
 
         const db = database ?? connection.database;
+        const sch = schema ?? "dbo";
         if (!isDatabaseAllowed(db, security)) {
           return {
             content: [{ type: "text" as const, text: `Access denied to database: ${db}` }],
+            isError: true,
+          };
+        }
+        if (!isSchemaAllowed(sch, security)) {
+          return {
+            content: [{ type: "text" as const, text: `Access denied to schema: ${sch}` }],
             isError: true,
           };
         }
@@ -180,7 +199,7 @@ export function registerProcedureTools(server: McpServer, config: AppConfig): vo
           .map(([key]) => `@${key} = @${key}`)
           .join(", ");
 
-        const eProcedure = escapeIdentifier(procedure);
+        const eProcedure = `${escapeIdentifier(sch)}.${escapeIdentifier(procedure)}`;
         const execSql = database
           ? `USE ${escapeIdentifier(database)};\nEXEC ${eProcedure} ${paramStr}`
           : `EXEC ${eProcedure} ${paramStr}`;
