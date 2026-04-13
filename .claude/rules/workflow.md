@@ -13,7 +13,7 @@ npm start -- --config ./mssql-mcp.yaml       # start with config
 npm start -- --config ./mssql-mcp.yaml --http 3000  # HTTP transport
 ```
 
-- `build` must pass before any commit. It is the only automated safety net — **there are no tests**.
+- `build` and `npm test` must pass before any commit.
 - `prepublishOnly` runs `build` automatically before `npm publish`, so you can't accidentally publish stale `dist/`.
 
 ## Git
@@ -68,9 +68,10 @@ Internal refactors that don't affect users don't need a CHANGELOG entry. When in
 
 ## Manual verification
 
-Since there are no tests, every change needs a human-verified smoke run:
+In addition to `npm test` (238 automated tests), verify manually against a live instance:
 
 1. `npm run build` — must succeed with zero errors.
+2. `npm test` — all tests must pass.
 2. Start the server against a local SQL Express or Docker SQL instance:
    ```bash
    npm start -- --config ./mssql-mcp.yaml

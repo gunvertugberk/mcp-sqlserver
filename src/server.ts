@@ -11,7 +11,7 @@ import { registerDBATools } from "./tools/dba.js";
 export function createServer(config: AppConfig): McpServer {
   const server = new McpServer({
     name: "mssql-mcp-server",
-    version: "1.3.1",
+    version: "1.3.2",
   });
 
   // ─── list_servers ───

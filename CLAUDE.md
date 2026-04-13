@@ -26,12 +26,14 @@ This file tells Claude (and any AI assistant using Claude Code / MCP) how to wor
 npm install          # install dependencies
 npm run build        # tsc → dist/
 npm run dev          # tsc --watch
+npm test             # vitest run (238 tests)
+npm run test:watch   # vitest in watch mode
 npm start            # node dist/index.js (after build)
 npm start -- --config ./mssql-mcp.yaml
 npm start -- --http 3000
 ```
 
-There is **no test framework** in this repo. Verification is manual — see `.claude/rules/workflow.md`.
+**Testing**: Vitest with 238 tests across 10 files covering security utils, formatters, and all 38 tool handlers. Run `npm test` before every commit.
 
 ## Directory map
 
