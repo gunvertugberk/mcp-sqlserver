@@ -2,13 +2,13 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { resolveServer, type AppConfig } from "../config.js";
 import { executeQuery } from "../database.js";
-import { validateQuery, escapeIdentifier } from "../utils/security.js";
+import { validateQuery, escapeIdentifier, isDatabaseAllowed } from "../utils/security.js";
 
 export function registerDDLTools(server: McpServer, config: AppConfig): void {
   // ─── execute_ddl ───
   server.tool(
     "execute_ddl",
-    "Execute a DDL statement (CREATE, ALTER, DROP). Requires admin security mode or allowDDL: true.",
+    "Execute a DDL statement (CREATE, ALTER, DROP, TRUNCATE). Requires admin security mode or allowDDL: true.",
     {
       sql: z.string().describe("The DDL statement to execute"),
       database: z
@@ -23,16 +23,20 @@ export function registerDDLTools(server: McpServer, config: AppConfig): void {
 
         // Verify it's DDL
         const trimmed = sqlQuery.trim();
-        if (!/^\s*(CREATE|ALTER|DROP)\s/i.test(trimmed)) {
+        if (!/^\s*(CREATE|ALTER|DROP|TRUNCATE)\s/i.test(trimmed)) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: "Error: execute_ddl only accepts CREATE/ALTER/DROP statements.",
+                text: "Error: execute_ddl only accepts CREATE/ALTER/DROP/TRUNCATE statements.",
               },
             ],
             isError: true,
           };
+        }
+
+        if (database && !isDatabaseAllowed(database, security)) {
+          return { content: [{ type: "text" as const, text: `Access denied to database: ${database}` }] };
         }
 
         validateQuery(sqlQuery, security);

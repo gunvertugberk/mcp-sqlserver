@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 See [GitHub Releases](https://github.com/gunvertugberk/mcp-sqlserver/releases) for full release notes.
 
+## [1.3.1] - 2026-04-13
+
+### Security
+- **Database allow/block list bypass fixed** — `execute_query`, `execute_mutation`, `execute_ddl`, and `export_query` now enforce `isDatabaseAllowed` when the optional `database` parameter is supplied
+- **`get_query_plan` hardened** — now extracts `security` from `resolveServer`, enforces `isDatabaseAllowed` and `validateQuery` on user-supplied SQL
+- **Numeric interpolation sanitized** — `get_wait_stats`, `get_space_usage`, `get_backup_history`, `get_query_store_stats`, `sample_table`, `generate_insert_scripts`, and `generate_test_data` now validate `top`/`count` as safe integers before SQL interpolation
+- **`describe_procedure` parameterized** — `OBJECT_ID` call now uses `@param` binding instead of manual single-quote escaping
+- **Schema allow/block list enforced** — `get_foreign_keys`, `get_indexes`, `get_constraints`, `get_triggers`, and `describe_procedure` now check `isSchemaAllowed`
+
+### Fixed
+- All `schema.ts` and `procedure.ts` handlers now wrapped in `try/catch` — errors return structured `{ isError: true }` instead of crashing the MCP transport
+- `execute_ddl` now accepts `TRUNCATE` statements (previously rejected by regex despite passing `validateQuery`)
+- `execute_procedure` — added separate `schema` parameter and escapes schema/procedure independently (previously `escapeIdentifier` wrapped the entire dotted name as one identifier)
+- `execute_mutation` — regex type check now runs before `validateQuery` (consistent with `execute_ddl` ordering)
+- `export_query` — replaced dynamic `await import()` of security utilities with static imports
+- `generateCreateTable` helper — uses `escapeIdentifier()` instead of raw bracket interpolation
+
 ## [1.3.0] - 2026-04-10
 
 ### Added
@@ -106,6 +123,7 @@ See [GitHub Releases](https://github.com/gunvertugberk/mcp-sqlserver/releases) f
 - Automatic row limits
 - YAML config + environment variable support
 
+[1.3.1]: https://github.com/gunvertugberk/mcp-sqlserver/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/gunvertugberk/mcp-sqlserver/compare/v1.2.3...v1.3.0
 [1.2.2]: https://github.com/gunvertugberk/mcp-sqlserver/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/gunvertugberk/mcp-sqlserver/compare/v1.2.0...v1.2.1

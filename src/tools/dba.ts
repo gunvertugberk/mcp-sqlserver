@@ -16,7 +16,7 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
     },
     async ({ top, server: srv }) => {
       const { connection, serverName } = resolveServer(config, srv);
-      const n = top ?? 20;
+      const n = Math.max(1, Math.min(Math.floor(top ?? 20), 1000));
       try {
         const result = await executeQuery(
           connection,
@@ -234,7 +234,7 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
     async ({ database, top, server: srv }) => {
       const { connection, security, serverName } = resolveServer(config, srv);
       const db = database ?? connection.database;
-      const n = top ?? 20;
+      const n = Math.max(1, Math.min(Math.floor(top ?? 20), 1000));
 
       if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
@@ -349,7 +349,7 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
     async ({ database, top, server: srv }) => {
       const { connection, security, serverName } = resolveServer(config, srv);
       const db = database ?? connection.database;
-      const n = top ?? 10;
+      const n = Math.max(1, Math.min(Math.floor(top ?? 10), 1000));
 
       if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
@@ -415,7 +415,7 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
     async ({ database, sort_by, top, server: srv }) => {
       const { connection, security, serverName } = resolveServer(config, srv);
       const db = database ?? connection.database;
-      const n = top ?? 10;
+      const n = Math.max(1, Math.min(Math.floor(top ?? 10), 1000));
       const metric = sort_by ?? "cpu";
 
       if (!isDatabaseAllowed(db, security)) {
@@ -489,7 +489,7 @@ export function registerDBATools(server: McpServer, config: AppConfig): void {
       const { connection, security, serverName } = resolveServer(config, srv);
       const db = database ?? connection.database;
       const sch = schema ?? "dbo";
-      const n = Math.min(count ?? 10, 100);
+      const n = Math.max(1, Math.min(Math.floor(count ?? 10), 100));
 
       if (!isDatabaseAllowed(db, security)) {
         return { content: [{ type: "text" as const, text: `Access denied to database: ${db}` }] };
