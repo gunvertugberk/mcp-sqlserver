@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 See [GitHub Releases](https://github.com/gunvertugberk/mcp-sqlserver/releases) for full release notes.
 
+## [1.3.2] - 2026-04-13
+
+### Added
+- **Comprehensive test suite** — 238 tests across 10 test files using Vitest
+  - `utils/security.test.ts` (44 tests) — escapeIdentifier, validateQuery, isDatabaseAllowed, isSchemaAllowed, applyMasking, ensureRowLimit
+  - `utils/formatter.test.ts` (14 tests) — markdown table formatting, ISO dates, NULL handling, truncation, JSON output
+  - `tools/schema.test.ts` (22 tests) — all 9 schema discovery tools with access control and schema filtering
+  - `tools/query.test.ts` (21 tests) — execute_query/execute_mutation with validation, masking, multi-server
+  - `tools/ddl.test.ts` (11 tests) — DDL gating, blocked keywords, database access
+  - `tools/procedure.test.ts` (18 tests) — list/describe/execute_procedure with readonly gating
+  - `tools/performance.test.ts` (18 tests) — query plans, active queries, table/index stats, server/db info
+  - `tools/dba.test.ts` (48 tests) — wait stats, deadlocks, blocking, backups, query store, health check
+  - `tools/utility.test.ts` (42 tests) — compare_schemas, generate_code, ER diagram, sample_table, export_query
+- `npm test` and `npm run test:watch` scripts
+- Test helper utilities (`tests/tools/_helpers.ts`) — `makeTestConfig`, `makeQueryResult`, `captureToolHandlers`
+
+### Changed
+- Updated CLAUDE.md workflow documentation to reflect test availability (`npm test`)
+
 ## [1.3.1] - 2026-04-13
 
 ### Security
@@ -123,6 +142,7 @@ See [GitHub Releases](https://github.com/gunvertugberk/mcp-sqlserver/releases) f
 - Automatic row limits
 - YAML config + environment variable support
 
+[1.3.2]: https://github.com/gunvertugberk/mcp-sqlserver/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/gunvertugberk/mcp-sqlserver/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/gunvertugberk/mcp-sqlserver/compare/v1.2.3...v1.3.0
 [1.2.2]: https://github.com/gunvertugberk/mcp-sqlserver/compare/v1.2.1...v1.2.2

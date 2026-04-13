@@ -130,7 +130,7 @@ Deleted code is `git log`'s job. Commented-out blocks rot silently and confuse f
 ## What the codebase does NOT use
 
 - No Prettier config, no ESLint config. The project relies on `tsc --strict` plus convention. Match the surrounding code when editing.
-- No test framework (Jest, Vitest, etc.). There is no CI coverage gate.
+- **Vitest** is the test framework. Tests live in `tests/` mirroring `src/`. Run `npm test` before every commit. No CI coverage gate yet.
 - No barrel exports (`index.ts` in `utils/` or `tools/`). Import directly from the specific file.
 - No path aliases (`@/utils/...`). Relative imports only.
 

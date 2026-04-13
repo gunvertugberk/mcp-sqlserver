@@ -126,4 +126,4 @@ If a tool should only exist when a specific config flag is set (like DDL tools),
 
 ## After editing
 
-Run `npm run build` and fix any TS errors before committing. There are no tests — the build is the only automated safety net. See `workflow.md` for manual verification.
+Run `npm run build && npm test` before committing. See `workflow.md` for manual verification against a live instance.
