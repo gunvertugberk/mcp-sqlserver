@@ -106,6 +106,7 @@ describe("loadConfig", () => {
     delete process.env.MSSQL_DATABASE;
     delete process.env.MSSQL_USER;
     delete process.env.MSSQL_PASSWORD;
+    delete process.env.MSSQL_APP_NAME;
     delete process.env.MSSQL_MCP_CONFIG;
   });
 
@@ -132,6 +133,17 @@ describe("loadConfig", () => {
     expect(config.servers.default.connection.host).toBe("env-host");
     expect(config.servers.default.connection.port).toBe(2433);
     expect(config.servers.default.connection.database).toBe("envdb");
+  });
+
+  it("defaults appName to mcp-sqlserver", () => {
+    const config = loadConfig("/nonexistent/path.yaml");
+    expect(config.servers.default.connection.appName).toBe("mcp-sqlserver");
+  });
+
+  it("applies MSSQL_APP_NAME env var", () => {
+    process.env.MSSQL_APP_NAME = "my-logon-app";
+    const config = loadConfig("/nonexistent/path.yaml");
+    expect(config.servers.default.connection.appName).toBe("my-logon-app");
   });
 
   it("applies MSSQL_USER env var", () => {

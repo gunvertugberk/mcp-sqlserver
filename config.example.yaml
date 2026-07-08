@@ -5,6 +5,7 @@ connection:
   host: localhost
   port: 1433
   database: MyDatabase
+  appName: mcp-sqlserver   # Application Name — visible via APP_NAME()/program_name (e.g. logon triggers)
   authentication:
     type: sql          # sql | windows | azure-ad
 

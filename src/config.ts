@@ -16,6 +16,7 @@ export interface ConnectionConfig {
   host: string;
   port: number;
   database: string;
+  appName: string;           // Application Name — surfaces in APP_NAME()/program_name (logon triggers)
   authentication: {
     type: AuthType;
     user?: string;
@@ -66,6 +67,7 @@ const DEFAULT_CONNECTION: ConnectionConfig = {
   host: "localhost",
   port: 1433,
   database: "master",
+  appName: "mcp-sqlserver",
   authentication: {
     type: "sql",
     user: "sa",
@@ -199,6 +201,7 @@ function loadSingleServer(fileConfig: any): AppConfig {
   if (process.env.MSSQL_HOST) envOverrides.host = process.env.MSSQL_HOST;
   if (process.env.MSSQL_PORT) envOverrides.port = parseInt(process.env.MSSQL_PORT, 10);
   if (process.env.MSSQL_DATABASE) envOverrides.database = process.env.MSSQL_DATABASE;
+  if (process.env.MSSQL_APP_NAME) envOverrides.appName = process.env.MSSQL_APP_NAME;
   if (process.env.MSSQL_USER) {
     envOverrides.authentication = {
       ...DEFAULT_CONNECTION.authentication,
@@ -292,6 +295,7 @@ function loadMultiServer(fileConfig: any): AppConfig {
     if (process.env.MSSQL_HOST) conn.host = process.env.MSSQL_HOST;
     if (process.env.MSSQL_PORT) conn.port = parseInt(process.env.MSSQL_PORT, 10);
     if (process.env.MSSQL_DATABASE) conn.database = process.env.MSSQL_DATABASE;
+    if (process.env.MSSQL_APP_NAME) conn.appName = process.env.MSSQL_APP_NAME;
     if (process.env.MSSQL_USER) conn.authentication.user = process.env.MSSQL_USER;
     if (process.env.MSSQL_PASSWORD) conn.authentication.password = process.env.MSSQL_PASSWORD;
   }
