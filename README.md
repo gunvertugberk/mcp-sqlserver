@@ -500,6 +500,7 @@ On Windows, use `cmd` as the command wrapper:
 | `MSSQL_HOST` | SQL Server hostname |
 | `MSSQL_PORT` | SQL Server port (default: 1433) |
 | `MSSQL_DATABASE` | Default database |
+| `MSSQL_APP_NAME` | Application Name reported to SQL Server (default: `mcp-sqlserver`) — visible via `APP_NAME()` / `program_name`, useful for logon triggers |
 | `MSSQL_USER` | SQL auth username |
 | `MSSQL_PASSWORD` | SQL auth password |
 | `MSSQL_MCP_CONFIG` | Path to YAML config file |

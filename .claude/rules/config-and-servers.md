@@ -93,6 +93,7 @@ Explicit overrides from YAML always win. Example: `mode: admin, allowDDL: false`
 | `MSSQL_HOST` | `connection.host` | |
 | `MSSQL_PORT` | `connection.port` | parsed as int |
 | `MSSQL_DATABASE` | `connection.database` | |
+| `MSSQL_APP_NAME` | `connection.appName` | Application Name reported to SQL Server (`APP_NAME()`) |
 | `MSSQL_USER` | `connection.authentication.user` | |
 | `MSSQL_PASSWORD` | `connection.authentication.password` | |
 | `MSSQL_MCP_CONFIG` | config file path | |

@@ -29,6 +29,7 @@ export function makeTestConfig(overrides: {
     host: "localhost",
     port: 1433,
     database: "testdb",
+    appName: "mcp-sqlserver",
     authentication: { type: "sql", user: "sa", password: "pass" },
     encrypt: false,
     trustServerCertificate: true,

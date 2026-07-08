@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 See [GitHub Releases](https://github.com/gunvertugberk/mcp-sqlserver/releases) for full release notes.
 
+## [1.3.3] - 2026-07-08
+
+### Added
+- **Application Name support** — new `appName` connection field (default `mcp-sqlserver`) is sent to SQL Server and surfaces via `APP_NAME()` / `sys.dm_exec_sessions.program_name`, so **logon triggers** can identify and authorize connections from this MCP server
+  - Configurable per-server in YAML (`connection.appName` / `connections.<name>.appName`)
+  - Overridable via the `MSSQL_APP_NAME` environment variable (applies to the default server)
+  - Propagated to the SSPI/`msnodesqlv8` connection string as `App=...`
+
 ## [1.3.2] - 2026-04-13
 
 ### Added

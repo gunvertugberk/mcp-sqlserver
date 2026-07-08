@@ -18,6 +18,8 @@ function buildSqlConfig(config: ConnectionConfig): sql.config {
     options: {
       encrypt: config.encrypt,
       trustServerCertificate: config.trustServerCertificate,
+      // Surfaces as APP_NAME()/program_name server-side — used by SQL Server logon triggers
+      appName: config.appName,
     },
   };
 
@@ -45,7 +47,7 @@ function buildSqlConfig(config: ConnectionConfig): sql.config {
           const server = config.host;
           const db = config.database || "master";
           (base as any).connectionString =
-            `Driver={ODBC Driver 17 for SQL Server};Server=${server};Database=${db};Trusted_Connection=yes;`;
+            `Driver={ODBC Driver 17 for SQL Server};Server=${server};Database=${db};Trusted_Connection=yes;App=${config.appName};`;
           (base as any).server = undefined;
           (base as any).port = undefined;
           (base as any).database = undefined;
